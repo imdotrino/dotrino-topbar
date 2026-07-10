@@ -29,17 +29,31 @@
  *   home             fallback de "volver" si no hay historial (default dotrino.com)
  *   no-back          oculta el chevron de volver
  *   no-lang          oculta el toggle de idioma (apps de un solo idioma)
- *   profile          muestra el botón de perfil (§6.1); emite 'dotrino-profile'
- *   avatar           data-URI del avatar del perfil activo (si falta: silueta)
+ *   profile          muestra el botón de perfil (§6.1)
+ *   avatar           data-URI del avatar del perfil activo (si falta: silueta o,
+ *                    si se pasó `identity`, el identicon derivado del perfil activo)
  *   support-href     URL de support (default https://ko-fi.com/dotrino)
  *   support-repo     repo para el botón "reportar" del support
  *   support-discord  invitación de Discord del support
  *   support-contact  si está, pasa `contact` a <dotrino-support>
  *   no-support       oculta la moneda de support
  *
+ * Perfil (§6.1) — el topbar es DUEÑO del modal "Mi perfil" para que la app NO fije
+ * la versión de @dotrino/profile (viaja dentro de @dotrino/topbar). Propiedades JS:
+ *   .identity     instancia de @dotrino/identity (Identity.connect())
+ *   .reputation   instancia de @dotrino/reputation (createVaultReputation(id))
+ *   .profileTheme objeto de CSS vars --ccp-* para tematizar el modal (opcional)
+ * Con `identity` + `reputation`, al pulsar el botón el topbar abre el modal solo.
+ * Método: openMyProfile({ editable }) — editable abre el modal editable (onboarding
+ * "ponte un apodo"). Si NO se setea identity, el botón solo emite 'dotrino-profile'
+ * (clásico) y la app renderiza su propio <dotrino-profile>.
+ *
  * Eventos (bubbles, composed):
- *   dotrino-lang      { lang }  al cambiar de idioma
- *   dotrino-profile   al pulsar el botón de perfil
+ *   dotrino-lang          { lang }  al cambiar de idioma
+ *   dotrino-profile       al pulsar el botón (cancelable: preventDefault para que
+ *                         la app maneje el perfil en vez del modal propio del topbar)
+ *   dotrino-profile-name  { pubkey, name }  al guardar el nombre en el modal
+ *   dotrino-profile-close  al cerrar el modal
  *
  * PERSONALIZACIÓN por app (todo opcional, para que cada app tenga su variación):
  *   - **Slots con nombre**:
@@ -58,6 +72,9 @@
  */
 import { createBackNav, getBackNav } from '@dotrino/nav' // registra <dotrino-back> + controlador
 import '@dotrino/support'
+import '@dotrino/profile' // registra <dotrino-profile>: el topbar es DUEÑO del modal "Mi perfil"
+import { createVaultProfileProvider } from '@dotrino/profile'
+import { avatarDataUri } from '@dotrino/identity/capabilities' // identicon del perfil activo
 
 const T = {
   es: { profile: 'Mi perfil', back: 'Volver' },
@@ -88,9 +105,95 @@ class DotrinoTopbar extends HTMLElement {
       try { createBackNav({ home: this.getAttribute('home') || 'https://dotrino.com' }) } catch (_) {}
     }
     this.render()
+    if (this._identity) this._refreshButtonAvatar()
   }
 
+  disconnectedCallback () { this._closeProfile() }
+
   attributeChangedCallback () { if (this.shadowRoot.childElementCount) this.render() }
+
+  /* ----- Perfil "Mi perfil": el topbar es DUEÑO del modal (§6.1) -----
+   * La app le pasa su `identity` y `reputation` (los pilares que ya maneja) por
+   * propiedad JS; el topbar crea el provider, deriva pubkey/nombre/avatar y abre
+   * <dotrino-profile modal mode="self"> él mismo. Así la app NO fija la versión de
+   * @dotrino/profile: viaja dentro de @dotrino/topbar. Si la app NO setea identity,
+   * el botón solo emite `dotrino-profile` (comportamiento clásico) y la app decide. */
+  get identity () { return this._identity || null }
+  set identity (v) { this._identity = v || null; this._provider = null; if (this.shadowRoot) this._refreshButtonAvatar() }
+  get reputation () { return this._reputation || null }
+  set reputation (v) { this._reputation = v || null; this._provider = null }
+  // Tema del modal (objeto de CSS vars --ccp-*), opcional; se aplica inline.
+  get profileTheme () { return this._profileTheme || null }
+  set profileTheme (v) { this._profileTheme = v || null }
+
+  _ensureProvider () {
+    if (this._provider) return this._provider
+    if (!this._identity || !this._reputation) return null
+    try { this._provider = createVaultProfileProvider({ identity: this._identity, reputation: this._reputation }) } catch (_) { this._provider = null }
+    return this._provider
+  }
+
+  async _refreshButtonAvatar () {
+    const id = this._identity
+    if (!id) return
+    // Respeta un avatar explícito que haya puesto la app; solo derivamos el nuestro.
+    if (this.hasAttribute('avatar') && !this._avatarAuto) return
+    try {
+      let avatar = null
+      try { const me = id.getMe ? await id.getMe() : null; if (me && me.avatar) avatar = me.avatar } catch (_) {}
+      if (!avatar) {
+        let pk = null
+        try { const cur = id.currentProfile ? await id.currentProfile() : null; pk = cur && cur.pubkey } catch (_) {}
+        if (!pk) pk = id.me && id.me.publickey
+        if (pk) avatar = avatarDataUri(pk, { size: 72 })
+      }
+      if (avatar) { this._avatarAuto = true; this.setAttribute('avatar', avatar) }
+    } catch (_) { /* deja el ícono genérico */ }
+  }
+
+  _onProfileClick () {
+    // Evento cancelable: si la app lo previene, maneja el perfil a su manera.
+    const ev = new CustomEvent('dotrino-profile', { bubbles: true, composed: true, cancelable: true })
+    const proceed = this.dispatchEvent(ev)
+    if (proceed && this._identity && this._reputation) this.openMyProfile()
+  }
+
+  /** Abre el modal "Mi perfil". opts.editable → modal editable (onboarding "ponte un apodo"). */
+  async openMyProfile (opts = {}) {
+    const provider = this._ensureProvider()
+    if (!provider) return // sin identity/reputation no hay de dónde sacar los datos
+    const id = this._identity
+    let pubkey = null; let name = null
+    try { const cur = id.currentProfile ? await id.currentProfile() : null; if (cur) { pubkey = cur.pubkey; name = cur.name } } catch (_) {}
+    if (!pubkey) pubkey = id.me && id.me.publickey
+    if (!name) name = id.me && id.me.nickname
+    if (!pubkey) return
+    this._closeProfile()
+    const el = document.createElement('dotrino-profile')
+    el.setAttribute('modal', '')
+    el.setAttribute('mode', 'self')
+    el.setAttribute('pubkey', pubkey)
+    if (name) el.setAttribute('name', name)
+    el.setAttribute('lang', this._lang)
+    if (opts.editable) el.setAttribute('allow-edit', '')
+    if (this._profileTheme && typeof this._profileTheme === 'object') {
+      for (const k in this._profileTheme) { try { el.style.setProperty(k, this._profileTheme[k]) } catch (_) {} }
+    }
+    el.provider = provider
+    el.addEventListener('cc-profile-name', (e) => {
+      // Re-emite para que la app reanude una acción pendiente (ensureNick).
+      this.dispatchEvent(new CustomEvent('dotrino-profile-name', { detail: e.detail, bubbles: true, composed: true }))
+      this._refreshButtonAvatar()
+    })
+    el.addEventListener('cc-profile-close', () => {
+      this._closeProfile()
+      this.dispatchEvent(new CustomEvent('dotrino-profile-close', { bubbles: true, composed: true }))
+    })
+    this._profileEl = el
+    document.body.appendChild(el) // a body: sobrevive a re-render del topbar; el backdrop es fixed
+  }
+
+  _closeProfile () { if (this._profileEl) { try { this._profileEl.remove() } catch (_) {} this._profileEl = null } }
 
   _resolveLang () {
     const a = (this.getAttribute('lang') || 'auto').toLowerCase()
@@ -217,8 +320,7 @@ class DotrinoTopbar extends HTMLElement {
 
     this.shadowRoot.querySelectorAll('.lang button').forEach((b) =>
       b.addEventListener('click', () => this.setLang(b.dataset.lang)))
-    this.shadowRoot.querySelector('.profile')?.addEventListener('click', () =>
-      this.dispatchEvent(new CustomEvent('dotrino-profile', { bubbles: true, composed: true })))
+    this.shadowRoot.querySelector('.profile')?.addEventListener('click', () => this._onProfileClick())
   }
 
   _attr (n) { return this.getAttribute(n) }
