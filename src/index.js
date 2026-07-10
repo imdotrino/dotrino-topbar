@@ -56,7 +56,7 @@
  *   - Los elementos que pasás por slot viven en el light DOM → los estiliza tu
  *     propio CSS directamente (sin `::part`).
  */
-import '@dotrino/nav'
+import { createBackNav, getBackNav } from '@dotrino/nav' // registra <dotrino-back> + controlador
 import '@dotrino/support'
 
 const T = {
@@ -80,6 +80,13 @@ class DotrinoTopbar extends HTMLElement {
   connectedCallback () {
     this._lang = this._resolveLang()
     document.documentElement.lang = this._lang
+    // Instala el controlador de "volver" (si la app no lo hizo ya). Sin esto,
+    // <dotrino-back> cae a un heurístico débil (history.length) que NO lleva a
+    // dotrino.com cuando no hay página anterior. El controlador decide por
+    // referrer: sin página previa real → va a `home`.
+    if (!this.hasAttribute('no-back') && !getBackNav()) {
+      try { createBackNav({ home: this.getAttribute('home') || 'https://dotrino.com' }) } catch (_) {}
+    }
     this.render()
   }
 
