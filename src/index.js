@@ -167,12 +167,17 @@ class DotrinoTopbar extends HTMLElement {
         .mid { display: flex; align-items: center; gap: 8px; min-width: 0; }
         .actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
         .back { --cc-back-color: var(--dt-text); }
-        .lang { display: flex; gap: 6px; }
+        /* Toggle de idioma = UN control segmentado (una sola pieza con borde
+           único), no dos botones sueltos. Ambas opciones visibles (§9), la
+           activa rellena con el color de acento. */
+        .lang { display: inline-flex; border: 1px solid var(--dt-line); border-radius: 999px; overflow: hidden; }
         .lang button {
-          background: none; border: 1px solid var(--dt-line); color: var(--dt-muted);
-          border-radius: 8px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 14px;
+          background: transparent; border: none; color: var(--dt-muted);
+          padding: 5px 11px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700;
         }
-        .lang button.on { color: var(--dt-text); border-color: var(--dt-accent); }
+        .lang button + button { border-left: 1px solid var(--dt-line); }
+        .lang button:hover { color: var(--dt-text); }
+        .lang button.on { background: var(--dt-accent); color: var(--dotrino-topbar-accent-text, #fff); }
         .profile {
           width: 36px; height: 36px; padding: 0; border-radius: 50%;
           display: inline-flex; align-items: center; justify-content: center;
@@ -182,11 +187,9 @@ class DotrinoTopbar extends HTMLElement {
         .profile:hover { color: var(--dt-text); border-color: var(--dt-accent); }
         .profile img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
         .profile svg { width: 20px; height: 20px; }
-        /* Móvil (§5): la marca se queda a la izquierda; las acciones bajan a una
-           segunda fila alineadas a la derecha, sin apretarse sobre la marca. */
-        @media (max-width: 560px) {
-          .actions { flex-basis: 100%; justify-content: flex-end; }
-        }
+        /* La barra hace flex-wrap: las acciones bajan a otra fila SOLO si no caben
+           (overflow real), no siempre. Al envolver, margin-left:auto las mantiene
+           a la derecha y la marca se queda arriba-izquierda. */
       </style>
       <header class="bar" part="bar">
         ${back}
