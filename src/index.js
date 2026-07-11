@@ -62,6 +62,8 @@
  *       (slot por defecto)           → tus botones de acción, al medio.
  *       <button slot="end">…</button>→ controles extra en el cluster derecho
  *                                       (p. ej. <dotrino-install>), antes de idioma.
+ *       <button slot="trailing">…</button>→ al FINAL de todo (después de la moneda
+ *                                       de support), p. ej. la hamburguesa de menú móvil.
  *   - **CSS `::part()`** para reestilar cualquier pieza desde el CSS de la app:
  *       dotrino-topbar::part(bar) { … }      part(brand) part(brand-name)
  *       part(actions) part(lang) part(lang-btn) part(profile) part(coin) part(back)
@@ -285,11 +287,29 @@ class DotrinoTopbar extends HTMLElement {
           backdrop-filter: blur(8px); box-sizing: border-box;
           font-family: var(--dt-font);
         }
-        .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; font-weight: 700; min-width: 0; }
+        /* La marca y el volver se anclan ARRIBA: si las acciones envuelven a varias
+           líneas (móvil angosto), la marca no debe flotar al centro vertical. */
+        .back, .brand { align-self: flex-start; }
+        .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; font-weight: 700; min-width: 0; min-height: 38px; }
         .brand img { width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto; }
         .brand span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .mid { display: flex; align-items: center; gap: 8px; min-width: 0; }
-        .actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+        /* Las acciones se envuelven UNA A UNA (no todo el grupo de golpe): al
+           faltar espacio, solo el/los iconos que no caben bajan a otra línea,
+           empezando por el de MÁS A LA IZQUIERDA (el primero visual). Truco:
+           el DOM va en orden inverso + flex-direction:row-reverse → el orden
+           visual es el correcto (end … trailing), pero el que "sobra" y se
+           envuelve es el ÚLTIMO del DOM = el primero visual (izquierda).
+           flex:1 + min-width:0 obliga a que envuelvan los ITEMS (no el grupo). */
+        .actions {
+          display: flex; align-items: center; gap: 10px;
+          /* flex-basis:0 (no auto): así el corte de línea NO envuelve la caja de
+             acciones entera junto a la marca; se queda en la fila y son sus ITEMS
+             los que envuelven uno a uno cuando falta ancho. */
+          flex: 1 1 0; min-width: 0;
+          flex-wrap: wrap; flex-direction: row-reverse; justify-content: flex-start;
+          row-gap: 8px;
+        }
         .back { --cc-back-color: var(--dt-text); }
         /* Toggle de idioma = UN control segmentado (una sola pieza con borde
            único), no dos botones sueltos. Ambas opciones visibles (§9), la
@@ -325,10 +345,14 @@ class DotrinoTopbar extends HTMLElement {
         </a>
         <div class="mid" part="mid"><slot></slot></div>
         <div class="actions" part="actions">
-          <slot name="end"></slot>
-          ${langToggle}
-          ${profile}
+          <!-- DOM en orden INVERSO (row-reverse lo vuelve al orden visual:
+               end … idioma … perfil … support … trailing). El último del DOM
+               = el primero visual (izquierda) es el primero en envolverse. -->
+          <slot name="trailing"></slot>
           ${support}
+          ${profile}
+          ${langToggle}
+          <slot name="end"></slot>
         </div>
       </header>`
 
