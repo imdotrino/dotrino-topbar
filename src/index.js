@@ -119,9 +119,14 @@ class DotrinoTopbar extends HTMLElement {
    * @dotrino/profile: viaja dentro de @dotrino/topbar. Si la app NO setea identity,
    * el botón solo emite `dotrino-profile` (comportamiento clásico) y la app decide. */
   get identity () { return this._identity || null }
-  set identity (v) { this._identity = v || null; this._provider = null; if (this.shadowRoot) this._refreshButtonAvatar() }
+  set identity (v) {
+    v = v || null
+    if (v === this._identity) return // evita re-render redundante (la app re-setea el mismo objeto)
+    this._identity = v; this._provider = null
+    if (this.shadowRoot) this._refreshButtonAvatar()
+  }
   get reputation () { return this._reputation || null }
-  set reputation (v) { this._reputation = v || null; this._provider = null }
+  set reputation (v) { v = v || null; if (v === this._reputation) return; this._reputation = v; this._provider = null }
   // Tema del modal (objeto de CSS vars --ccp-*), opcional; se aplica inline.
   get profileTheme () { return this._profileTheme || null }
   set profileTheme (v) { this._profileTheme = v || null }
@@ -147,7 +152,10 @@ class DotrinoTopbar extends HTMLElement {
         if (!pk) pk = id.me && id.me.publickey
         if (pk) avatar = avatarDataUri(pk, { size: 72 })
       }
-      if (avatar) { this._avatarAuto = true; this.setAttribute('avatar', avatar) }
+      // Solo si cambió: setAttribute dispara attributeChangedCallback → render
+      // aunque el valor sea igual; el guard evita re-renders redundantes (y el
+      // parpadeo del botón que desmonta el modal a medio abrir).
+      if (avatar && this.getAttribute('avatar') !== avatar) { this._avatarAuto = true; this.setAttribute('avatar', avatar) }
     } catch (_) { /* deja el ícono genérico */ }
   }
 
@@ -191,9 +199,15 @@ class DotrinoTopbar extends HTMLElement {
     })
     this._profileEl = el
     document.body.appendChild(el) // a body: sobrevive a re-render del topbar; el backdrop es fixed
+    // Integra el modal con el "volver" del ecosistema (botón físico Android / gesto
+    // iOS / atrás del navegador): abrir empuja una capa que, al volver, lo cierra.
+    try { const nav = getBackNav(); if (nav) this._profileLayer = nav.open(() => this._closeProfile()) } catch (_) {}
   }
 
-  _closeProfile () { if (this._profileEl) { try { this._profileEl.remove() } catch (_) {} this._profileEl = null } }
+  _closeProfile () {
+    if (this._profileLayer) { try { this._profileLayer.close() } catch (_) {} this._profileLayer = null }
+    if (this._profileEl) { try { this._profileEl.remove() } catch (_) {} this._profileEl = null }
+  }
 
   _resolveLang () {
     const a = (this.getAttribute('lang') || 'auto').toLowerCase()
