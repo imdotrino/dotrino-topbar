@@ -1,6 +1,6 @@
 {
   "name": "@dotrino/topbar",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Web Component <dotrino-topbar>: la barra superior estándar del ecosistema Dotrino (marca + volver + acciones + idioma + perfil + moneda de support) en un solo componente. Autohosteado, sin JS de terceros ni cookies.",
   "type": "module",
   "main": "src/index.js",
@@ -28,11 +28,11 @@
   ],
   "dependencies": {
     "@dotrino/nav": "^0.2.1",
-    "@dotrino/support": "^0.7.0",
+    "@dotrino/support": "^0.8.0",
     "@dotrino/profile": "^0.13.0"
   },
   "peerDependencies": {
-    "@dotrino/identity": ">=0.16.0"
+    "@dotrino/identity": ">=0.21.0"
   },
   "author": "seyacat",
   "license": "MIT"

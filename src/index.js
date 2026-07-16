@@ -76,7 +76,7 @@ import { createBackNav, getBackNav } from '@dotrino/nav' // registra <dotrino-ba
 import '@dotrino/support'
 import '@dotrino/profile' // registra <dotrino-profile>: el topbar es DUEÑO del modal "Mi perfil"
 import { createVaultProfileProvider } from '@dotrino/profile'
-import { avatarDataUri } from '@dotrino/identity/capabilities' // identicon del perfil activo
+import { avatarDataUri } from '@dotrino/identity/avatar' // identicon del perfil activo (subpath barato: no arrastra core.js)
 
 const T = {
   es: { profile: 'Mi perfil', back: 'Volver' },
