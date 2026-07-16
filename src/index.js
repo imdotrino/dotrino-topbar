@@ -11,8 +11,9 @@
  *   - `@dotrino/nav`     → chevron de volver + captura del botón físico Android /
  *                          gesto iOS / atrás del navegador (`<dotrino-back>`).
  *   - `@dotrino/support` → moneda de soporte/donación (`<dotrino-support>`).
- *   El botón de perfil es opcional (apps con identidad, §6.1): la app escucha
- *   `dotrino-profile` y abre su `<dotrino-profile>`; el avatar se pasa por atributo.
+ *   El botón de perfil va en TODA app (§6.1: no existen las apps sin identidad):
+ *   con `.identity` + `.reputation` el topbar abre el modal solo; si no, emite
+ *   `dotrino-profile` y la app decide.
  *
  * Uso vanilla:
  *   <script type="module" src=".../@dotrino/topbar/src/index.js"></script>
@@ -36,6 +37,12 @@
  *   support-repo     repo para el botón "reportar" del support
  *   support-discord  invitación de Discord del support
  *   support-contact  si está, pasa `contact` a <dotrino-support>
+ *   support-share-url / support-share-text / support-app / support-x-handle
+ *                    se propagan tal cual a la moneda, para las apps que enchufan
+ *                    su propio enlace al compartir (p. ej. el de invitación de los
+ *                    referidos, §12.3). La moneda vive en NUESTRO shadow DOM y la
+ *                    recreamos en cada render: sin este passthrough la app no
+ *                    tiene forma de llegar a ella.
  *   no-support       oculta la moneda de support
  *
  * Perfil (§6.1) — el topbar es DUEÑO del modal "Mi perfil" para que la app NO fije
@@ -88,7 +95,7 @@ const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
   <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" /></svg>`
 
 class DotrinoTopbar extends HTMLElement {
-  static get observedAttributes () { return ['brand', 'icon', 'brand-href', 'lang', 'avatar', 'profile'] }
+  static get observedAttributes () { return ['brand', 'icon', 'brand-href', 'lang', 'avatar', 'profile', 'support-share-url', 'support-share-text', 'support-app', 'support-x-handle'] }
 
   constructor () {
     super()
@@ -112,7 +119,16 @@ class DotrinoTopbar extends HTMLElement {
 
   disconnectedCallback () { this._closeProfile() }
 
-  attributeChangedCallback () { if (this.shadowRoot.childElementCount) this.render() }
+  attributeChangedCallback (name, oldV, newV) {
+    // `lang` hay que RE-RESOLVERLO: antes solo se leía en connectedCallback, así
+    // que un cambio de atributo posterior al montaje re-renderizaba con el idioma
+    // viejo (this._lang) y el atributo no servía de nada salvo en el mount.
+    if (name === 'lang' && oldV !== newV) {
+      const l = this._resolveLang()
+      if (l !== this._lang) { this.setLang(l); return }   // setLang ya renderiza y avisa
+    }
+    if (this.shadowRoot.childElementCount) this.render()
+  }
 
   /* ----- Perfil "Mi perfil": el topbar es DUEÑO del modal (§6.1) -----
    * La app le pasa su `identity` y `reputation` (los pilares que ya maneja) por
@@ -222,6 +238,23 @@ class DotrinoTopbar extends HTMLElement {
 
   get lang () { return this._lang }
 
+  /**
+   * OJO: este setter no es opcional. `lang` es una propiedad NATIVA de
+   * HTMLElement, así que el getter de arriba la sombrea; sin setter, asignar la
+   * propiedad (`el.lang = 'es'`) NO reflejaba al atributo y se perdía EN
+   * SILENCIO — sin error, ni siquiera en modo estricto. Y Vue, cuando el
+   * elemento tiene la propiedad (`'lang' in el` → siempre, es nativa), prefiere
+   * asignarla antes que el atributo: o sea que `:lang="lang"` era un no-op y el
+   * topbar se quedaba con el idioma del NAVEGADOR. Síntoma: una app en español
+   * abierta en un navegador en inglés servía `<html lang="en">` y el header en
+   * inglés, rompiendo la coherencia lang/og:locale que pide §7.
+   */
+  set lang (v) {
+    const l = String(v || '').toLowerCase()
+    if (l !== 'es' && l !== 'en' && l !== 'auto') return
+    this.setAttribute('lang', l)   // → attributeChangedCallback re-resuelve el idioma
+  }
+
   setLang (l) {
     if (l !== 'es' && l !== 'en') return
     this._lang = l
@@ -245,11 +278,21 @@ class DotrinoTopbar extends HTMLElement {
     const avatar = this.getAttribute('avatar') || ''
     const home = this.getAttribute('home') || 'https://dotrino.com'
 
+    // `support-*` se propaga TAL CUAL a la moneda. Incluye lo de compartir
+    // (share-url/share-text/app/x-handle): la moneda vive en NUESTRO shadow DOM
+    // y la recreamos en cada render, así que una app que quisiera enchufar su
+    // enlace de invitación (los referidos de Critters/Diamonds, §12.3) no tenía
+    // forma de llegar y terminaba metiendo un MutationObserver dentro de este
+    // shadowRoot para re-aplicar el atributo. Eso es culpa nuestra, no de la app.
     const support = has('no-support') ? '' : `<dotrino-support
       class="coin" part="coin"
       href="${this._attr('support-href') || 'https://ko-fi.com/dotrino'}"
       ${this._attr('support-repo') ? `repo="${this._attr('support-repo')}"` : ''}
       ${this._attr('support-discord') ? `discord="${this._attr('support-discord')}"` : ''}
+      ${this._attr('support-share-url') ? `share-url="${this._attr('support-share-url')}"` : ''}
+      ${this._attr('support-share-text') ? `share-text="${this._attr('support-share-text')}"` : ''}
+      ${this._attr('support-app') ? `app="${this._attr('support-app')}"` : ''}
+      ${this._attr('support-x-handle') ? `x-handle="${this._attr('support-x-handle')}"` : ''}
       ${has('support-contact') ? 'contact' : ''}
       lang="${lang}"></dotrino-support>`
 
