@@ -15,8 +15,9 @@
  *   con `.identity` + `.reputation` el topbar abre el modal solo; si no, emite
  *   `dotrino-profile` y la app decide.
  *
- * Uso vanilla:
- *   <script type="module" src=".../@dotrino/topbar/src/index.js"></script>
+ * Uso vanilla (por CDN va con `+esm`, NO con /src/index.js: los imports desnudos
+ * de abajo no resuelven en el navegador; `+esm` los reescribe):
+ *   <script type="module" src="https://cdn.jsdelivr.net/npm/@dotrino/topbar@0.5/+esm"></script>
  *   <dotrino-topbar brand="Mi App" icon="/icon.svg"
  *     support-repo="imdotrino/mi-app" profile></dotrino-topbar>
  *
@@ -85,9 +86,16 @@ import '@dotrino/profile' // registra <dotrino-profile>: el topbar es DUEÑO del
 import { createVaultProfileProvider } from '@dotrino/profile'
 import { avatarDataUri } from '@dotrino/identity/avatar' // identicon del perfil activo (subpath barato: no arrastra core.js)
 
+/** Dónde se crea un perfil: una página común a todo el ecosistema (no un botón al vuelo). */
+const CREATE_URL = 'https://profile.dotrino.com/create'
+
+/** Escape mínimo para el HTML que arma el menú. */
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
 const T = {
-  es: { profile: 'Mi perfil', back: 'Volver' },
-  en: { profile: 'My profile', back: 'Back' }
+  es: { profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil', unnamedProfile: 'Perfil sin nombre' },
+  en: { profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile', unnamedProfile: 'Unnamed profile' }
 }
 
 const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -175,6 +183,66 @@ class DotrinoTopbar extends HTMLElement {
       // parpadeo del botón que desmonta el modal a medio abrir).
       if (avatar && this.getAttribute('avatar') !== avatar) { this._avatarAuto = true; this.setAttribute('avatar', avatar) }
     } catch (_) { /* deja el ícono genérico */ }
+  }
+
+  /**
+   * CAMBIO RÁPIDO de perfil al pasar el ratón por el botón. Se carga la lista la primera
+   * vez que hace falta (no en cada render) y se cierra al salir, al pulsar Escape o al
+   * tocar fuera. Con teclado se abre al enfocar el botón, para que no sea solo de ratón.
+   */
+  _wireProfileMenu () {
+    const wrap = this.shadowRoot.querySelector('.profile-wrap')
+    const menu = this.shadowRoot.querySelector('.prof-menu')
+    const btn = this.shadowRoot.querySelector('.profile')
+    if (!wrap || !menu || !btn) return
+
+    const abrir = async () => {
+      clearTimeout(this._menuTimer)
+      if (!this._identity) return
+      await this._loadProfilesMenu()
+      if (!menu.innerHTML) return
+      menu.hidden = false
+      btn.setAttribute('aria-expanded', 'true')
+    }
+    const cerrar = () => {
+      clearTimeout(this._menuTimer)
+      this._menuTimer = setTimeout(() => {
+        menu.hidden = true
+        btn.setAttribute('aria-expanded', 'false')
+      }, 180) // margen para llegar del botón al menú sin que se cierre
+    }
+    wrap.addEventListener('mouseenter', abrir)
+    wrap.addEventListener('mouseleave', cerrar)
+    wrap.addEventListener('focusin', abrir)
+    wrap.addEventListener('focusout', cerrar)
+    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { menu.hidden = true; btn.focus() } })
+  }
+
+  /** Pinta la lista de perfiles del dispositivo (avatar + nombre + cuál está activo). */
+  async _loadProfilesMenu () {
+    const id = this._identity
+    const menu = this.shadowRoot.querySelector('.prof-menu')
+    if (!id || !menu || typeof id.listProfiles !== 'function') return
+    const t = T[this._lang] || T.es
+    try {
+      const lista = await id.listProfiles()
+      if (!Array.isArray(lista) || !lista.length) return
+      const filas = lista.map((p) => {
+        const img = p.avatar || avatarDataUri(p.pubkey || p.id || '', { size: 44 })
+        const nombre = p.name || t.unnamedProfile
+        return p.current
+          ? `<div class="item" aria-current="true"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span>✓</div>`
+          : `<button class="item" type="button" data-switch="${esc(p.id)}"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span></button>`
+      }).join('')
+      menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
+        `<a class="item" href="${esc(CREATE_URL)}?return=${encodeURIComponent(location.href)}">＋ ${esc(t.newProfile)}</a>`
+      menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true
+        // Cambiar de perfil NO es reactivo por diseño: se recarga para que toda la app
+        // arranque con el nuevo (las pestañas abiertas conservan el suyo).
+        try { await id.switchProfile(b.getAttribute('data-switch')); location.reload() } catch (_) { b.disabled = false }
+      }))
+    } catch (_) { /* sin perfiles que ofrecer: el botón sigue funcionando igual */ }
   }
 
   _onProfileClick () {
@@ -296,9 +364,16 @@ class DotrinoTopbar extends HTMLElement {
       ${has('support-contact') ? 'contact' : ''}
       lang="${lang}"></dotrino-support>`
 
-    const profile = has('profile') ? `<button class="profile" part="profile" type="button"
-      title="${t.profile}" aria-label="${t.profile}" data-testid="my-profile">
-      ${avatar ? `<img src="${avatar}" alt="" />` : PROFILE_SVG}</button>` : ''
+    // El botón va envuelto para poder colgarle el CAMBIO RÁPIDO de perfil: al pasar el
+    // ratón (o al enfocarlo con el teclado) aparece la lista de perfiles de este
+    // dispositivo. Un clic sigue abriendo tu perfil, como siempre.
+    const profile = has('profile') ? `<div class="profile-wrap" part="profile-wrap">
+      <button class="profile" part="profile" type="button"
+        title="${t.profile}" aria-label="${t.profile}" data-testid="my-profile"
+        aria-haspopup="true" aria-expanded="false">
+        ${avatar ? `<img src="${avatar}" alt="" />` : PROFILE_SVG}</button>
+      <div class="prof-menu" part="profile-menu" data-testid="profile-menu" hidden></div>
+    </div>` : ''
 
     const back = has('no-back') ? '' : `<dotrino-back class="back" part="back" lang="${lang}" home="${home}"></dotrino-back>`
 
@@ -373,6 +448,27 @@ class DotrinoTopbar extends HTMLElement {
         }
         .profile:hover { color: var(--dt-text); border-color: var(--dt-accent); }
         .profile img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+        .profile-wrap { position: relative; display: inline-flex; }
+        .prof-menu {
+          position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
+          min-width: 208px; max-width: 280px; padding: 6px;
+          background: var(--dt-bg, #0f1725); border: 1px solid var(--dt-border, #1e2a3d);
+          border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+          display: flex; flex-direction: column; gap: 2px;
+        }
+        .prof-menu[hidden] { display: none; }
+        .prof-menu .item {
+          display: flex; align-items: center; gap: 8px; width: 100%;
+          padding: 7px 8px; border: 0; border-radius: 9px; cursor: pointer;
+          background: transparent; color: var(--dt-text, #dbe7f7); font: inherit; font-size: 13px; text-align: left;
+          text-decoration: none;
+        }
+        .prof-menu .item:hover, .prof-menu .item:focus-visible { background: var(--dt-bg-2, #17263c); }
+        .prof-menu .item[aria-current="true"] { color: var(--dt-accent, #9cc4ff); font-weight: 600; }
+        .prof-menu .item img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
+        .prof-menu .item span { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .prof-menu .sep { height: 1px; margin: 4px 2px; background: var(--dt-border, #1e2a3d); }
+        .prof-menu .head { padding: 4px 8px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dt-muted, #8ea0b8); }
         .profile svg { width: 20px; height: 20px; }
         /* La barra hace flex-wrap: las acciones bajan a otra fila SOLO si no caben
            (overflow real), no siempre. Al envolver, margin-left:auto las mantiene
@@ -402,6 +498,7 @@ class DotrinoTopbar extends HTMLElement {
     this.shadowRoot.querySelectorAll('.lang button').forEach((b) =>
       b.addEventListener('click', () => this.setLang(b.dataset.lang)))
     this.shadowRoot.querySelector('.profile')?.addEventListener('click', () => this._onProfileClick())
+    this._wireProfileMenu()
   }
 
   _attr (n) { return this.getAttribute(n) }

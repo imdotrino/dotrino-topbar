@@ -28,7 +28,12 @@ piezas compartidas para que la app importe **una sola cosa**:
 Vanilla:
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/@dotrino/topbar@0.1/src/index.js"></script>
+<!-- OJO: por CDN va SIEMPRE con `+esm`, no con `/src/index.js`. Este paquete
+     importa @dotrino/nav, /support, /profile y /identity por su nombre, y un
+     especificador desnudo NO resuelve en el navegador ("Failed to resolve module
+     specifier"). `+esm` los reescribe a URLs del CDN. Por npm no aplica: el
+     bundler los resuelve solo. -->
+<script type="module" src="https://cdn.jsdelivr.net/npm/@dotrino/topbar@0.5/+esm"></script>
 
 <dotrino-topbar brand="Mi App" icon="/icon.svg"
   support-repo="imdotrino/mi-app"
