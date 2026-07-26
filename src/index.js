@@ -250,7 +250,7 @@ class DotrinoTopbar extends HTMLElement {
         const img = p.avatar || avatarDataUri(p.pubkey || p.id || '', { size: 44 })
         const nombre = p.name || t.unnamedProfile
         return p.current
-          ? `<div class="item" aria-current="true"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span>✓</div>`
+          ? `<div class="item" aria-current="true"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span><span class="marca" aria-hidden="true">✓</span></div>`
           : `<button class="item" type="button" data-switch="${esc(p.id)}"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span></button>`
       }).join('')
       menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
@@ -449,7 +449,10 @@ class DotrinoTopbar extends HTMLElement {
         }
         .prof-menu[hidden] { display: none; }
         .prof-menu .item {
-          display: flex; align-items: center; gap: 8px; width: 100%;
+          /* box-sizing es lo que arregla que el resaltado del ratón se saliera de la caja:
+             con width:100% MÁS el relleno, cada fila medía 16px de más y pintaba su fondo
+             por encima del borde del menú (y de paso empujaba el visto contra él). */
+          display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
           padding: 7px 8px; border: 0; border-radius: 9px; cursor: pointer;
           background: transparent; color: var(--dt-text, #dbe7f7); font: inherit; font-size: 13px; text-align: left;
           text-decoration: none;
@@ -457,7 +460,9 @@ class DotrinoTopbar extends HTMLElement {
         .prof-menu .item:hover, .prof-menu .item:focus-visible { background: var(--dt-bg-2, #17263c); }
         .prof-menu .item[aria-current="true"] { color: var(--dt-accent, #9cc4ff); font-weight: 600; }
         .prof-menu .item img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
-        .prof-menu .item span { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .prof-menu .item span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* El ✓ del perfil activo, con su propio hueco: antes iba pegado al borde. */
+        .prof-menu .item .marca { flex: 0 0 auto; margin-left: 2px; opacity: .9; }
         .prof-menu .sep { height: 1px; margin: 4px 2px; background: var(--dt-border, #1e2a3d); }
         .prof-menu .head { padding: 4px 8px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dt-muted, #8ea0b8); }
         .profile svg { width: 20px; height: 20px; }
