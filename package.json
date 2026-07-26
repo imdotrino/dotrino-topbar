@@ -27,9 +27,9 @@
     "cross-app"
   ],
   "dependencies": {
-    "@dotrino/nav": "^0.2.1",
-    "@dotrino/support": "^0.8.1",
-    "@dotrino/profile": "^0.15.0"
+    "@dotrino/nav": "0.2.2",
+    "@dotrino/support": "0.8.1",
+    "@dotrino/profile": "0.15.0"
   },
   "peerDependencies": {
     "@dotrino/identity": ">=0.21.0"
