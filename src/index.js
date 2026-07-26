@@ -129,7 +129,10 @@ class DotrinoTopbar extends HTMLElement {
     if (this._identity) this._refreshButtonAvatar()
   }
 
-  disconnectedCallback () { this._cerrarMenu(true) }
+  disconnectedCallback () {
+    this._cerrarMenu()
+    if (this._fueraListener) { document.removeEventListener('click', this._fueraListener); this._fueraListener = null }
+  }
 
   attributeChangedCallback (name, oldV, newV) {
     // `lang` hay que RE-RESOLVERLO: antes solo se leía en connectedCallback, así
@@ -206,22 +209,17 @@ class DotrinoTopbar extends HTMLElement {
     const btn = this.shadowRoot.querySelector('.profile')
     if (!wrap || !menu || !btn) return
 
-    // En táctil el hover no existe: allí el menú lo abre y lo cierra el propio toque
-    // (ver `_onProfileClick`), y fuera de él se cierra al tocar en otro sitio.
-    if (!this._esTactil()) {
-      wrap.addEventListener('mouseenter', () => this._abrirMenu())
-      wrap.addEventListener('mouseleave', () => this._cerrarMenu())
-      wrap.addEventListener('focusin', () => this._abrirMenu())
-      wrap.addEventListener('focusout', () => this._cerrarMenu())
-    } else if (!this._fueraListener) {
-      this._fueraListener = (e) => { if (!this.contains(e.target)) this._cerrarMenu(true) }
+    // El menú se abre al PULSAR, no al pasar por encima: un menú que aparece solo porque
+    // el ratón pasa cerca es incómodo, y además así el gesto es el mismo en el escritorio
+    // y en el móvil, donde no existe el hover.
+    if (!this._fueraListener) {
+      this._fueraListener = (e) => { if (!this.contains(e.target)) this._cerrarMenu() }
       document.addEventListener('click', this._fueraListener)
     }
-    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this._cerrarMenu(true); btn.focus() } })
+    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this._cerrarMenu(); btn.focus() } })
   }
 
   async _abrirMenu () {
-    clearTimeout(this._menuTimer)
     if (!this._identity) return
     const menu = this.shadowRoot.querySelector('.prof-menu')
     const btn = this.shadowRoot.querySelector('.profile')
@@ -232,16 +230,11 @@ class DotrinoTopbar extends HTMLElement {
     btn.setAttribute('aria-expanded', 'true')
   }
 
-  /** `ya` = sin el margen de gracia para llegar del botón al menú. */
-  _cerrarMenu (ya = false) {
-    clearTimeout(this._menuTimer)
-    const hazlo = () => {
-      const menu = this.shadowRoot?.querySelector('.prof-menu')
-      const btn = this.shadowRoot?.querySelector('.profile')
-      if (menu) menu.hidden = true
-      if (btn) btn.setAttribute('aria-expanded', 'false')
-    }
-    if (ya) hazlo(); else this._menuTimer = setTimeout(hazlo, 180)
+  _cerrarMenu () {
+    const menu = this.shadowRoot?.querySelector('.prof-menu')
+    const btn = this.shadowRoot?.querySelector('.profile')
+    if (menu) menu.hidden = true
+    if (btn) btn.setAttribute('aria-expanded', 'false')
   }
 
   /** Pinta la lista de perfiles del dispositivo (avatar + nombre + cuál está activo). */
@@ -273,30 +266,20 @@ class DotrinoTopbar extends HTMLElement {
   }
 
   /**
-   * Un clic en el avatar TE LLEVA A TU PERFIL (la página), no abre un popup. El modal se
-   * quitó: duplicaba lo que ya está en `profile.dotrino.com` —y peor, hacía que el mismo
-   * botón hiciera cosas distintas según la app—. Ahora hay un solo sitio donde vive tu
-   * perfil, y desde cualquier app se llega igual.
+   * Pulsar el avatar abre (o cierra) el menú: tus perfiles para cambiar, «Abrir mi perfil»
+   * y «Crear perfil». Un solo gesto, el mismo en escritorio y en móvil.
    *
-   * En pantallas TÁCTILES no hay «pasar el ratón», así que el primer toque abre el menú
-   * (con «Abrir mi perfil» dentro) en vez de navegar: si no, el cambio rápido de perfil
-   * sería inalcanzable en un móvil.
+   * No abre ningún modal: el de TU perfil se quitó porque duplicaba
+   * `profile.dotrino.com`. El modal sigue vivo para ver el perfil de OTRA persona, pero
+   * eso lo monta cada app.
    */
   _onProfileClick (ev) {
     const evento = new CustomEvent('dotrino-profile', { bubbles: true, composed: true, cancelable: true })
     if (!this.dispatchEvent(evento)) return // la app lo maneja a su manera
-
-    if (this._esTactil()) {
-      const menu = this.shadowRoot.querySelector('.prof-menu')
-      if (menu && menu.hidden) { ev?.preventDefault?.(); this._abrirMenu(); return }
-      if (menu && !menu.hidden) { this._cerrarMenu(true); return }
-    }
-    this._irAMiPerfil()
-  }
-
-  /** Sin puntero fino (móvil/tablet): no existe el hover, hay que poder tocar. */
-  _esTactil () {
-    try { return window.matchMedia('(hover: none), (pointer: coarse)').matches } catch (_) { return false }
+    ev?.stopPropagation?.() // que no lo cierre el listener de «clic fuera»
+    const menu = this.shadowRoot.querySelector('.prof-menu')
+    if (menu && !menu.hidden) this._cerrarMenu()
+    else this._abrirMenu()
   }
 
   _irAMiPerfil () {
