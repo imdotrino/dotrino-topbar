@@ -52,7 +52,9 @@
  *   .reputation   instancia de @dotrino/reputation (createVaultReputation(id))
  *   .profileTheme objeto de CSS vars --ccp-* para tematizar el modal (opcional)
  * Con `identity` + `reputation`, al pulsar el botón el topbar abre el modal solo.
- * Método: openMyProfile({ editable }) — editable abre el modal editable (onboarding
+ * El botón de perfil LLEVA a profile.dotrino.com (no abre modal: se quitó porque duplicaba
+ * esa página). Al pasar el ratón —o al tocarlo en móvil— ofrece cambiar de perfil.
+ * (antes: openMyProfile({ editable }) abría un modal editable para el onboarding
  * "ponte un apodo"). Si NO se setea identity, el botón solo emite 'dotrino-profile'
  * (clásico) y la app renderiza su propio <dotrino-profile>.
  *
@@ -82,10 +84,12 @@
  */
 import { createBackNav, getBackNav } from '@dotrino/nav' // registra <dotrino-back> + controlador
 import '@dotrino/support'
-import '@dotrino/profile' // registra <dotrino-profile>: el topbar es DUEÑO del modal "Mi perfil"
-import { createVaultProfileProvider } from '@dotrino/profile'
+// El topbar YA NO abre un modal de perfil (se quitó: duplicaba profile.dotrino.com). Una
+// app que quiera mostrar la tarjeta de OTRA persona importa `@dotrino/profile` ella misma.
 import { avatarDataUri } from '@dotrino/identity/avatar' // identicon del perfil activo (subpath barato: no arrastra core.js)
 
+/** Tu perfil vive en una sola página del ecosistema; el topbar solo te lleva. */
+const PROFILE_URL = 'https://profile.dotrino.com/'
 /** Dónde se crea un perfil: una página común a todo el ecosistema (no un botón al vuelo). */
 const CREATE_URL = 'https://profile.dotrino.com/create'
 
@@ -94,8 +98,8 @@ const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
 const T = {
-  es: { profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil', unnamedProfile: 'Perfil sin nombre' },
-  en: { profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile', unnamedProfile: 'Unnamed profile' }
+  es: { profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre' },
+  en: { profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile' }
 }
 
 const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -125,7 +129,7 @@ class DotrinoTopbar extends HTMLElement {
     if (this._identity) this._refreshButtonAvatar()
   }
 
-  disconnectedCallback () { this._closeProfile() }
+  disconnectedCallback () { this._cerrarMenu(true) }
 
   attributeChangedCallback (name, oldV, newV) {
     // `lang` hay que RE-RESOLVERLO: antes solo se leía en connectedCallback, así
@@ -153,16 +157,22 @@ class DotrinoTopbar extends HTMLElement {
   }
   get reputation () { return this._reputation || null }
   set reputation (v) { v = v || null; if (v === this._reputation) return; this._reputation = v; this._provider = null }
-  // Tema del modal (objeto de CSS vars --ccp-*), opcional; se aplica inline.
+  // Compat: algunas apps setean `profileTheme` para el modal, que ya no existe. Se acepta
+  // y se ignora, para no romperlas por un atributo que ahora no pinta nada.
   get profileTheme () { return this._profileTheme || null }
   set profileTheme (v) { this._profileTheme = v || null }
 
-  _ensureProvider () {
-    if (this._provider) return this._provider
-    if (!this._identity || !this._reputation) return null
-    try { this._provider = createVaultProfileProvider({ identity: this._identity, reputation: this._reputation }) } catch (_) { this._provider = null }
-    return this._provider
-  }
+  // Compat: algunas apps setean `profileTheme` para el modal, que ya no existe. Se acepta
+  // y se ignora, para no romperlas por un atributo que ahora no pinta nada.
+  get profileTheme () { return this._profileTheme || null }
+  set profileTheme (v) { this._profileTheme = v || null }
+
+  /**
+   * Compat: alguna app (el home, para el onboarding «ponte un apodo») llama a esto para
+   * abrir el perfil. El modal ya no existe, así que lleva a la página, que es donde de
+   * verdad se edita. Se mantiene el nombre para no romperlas.
+   */
+  openMyProfile () { this._irAMiPerfil() }
 
   async _refreshButtonAvatar () {
     const id = this._identity
@@ -196,26 +206,42 @@ class DotrinoTopbar extends HTMLElement {
     const btn = this.shadowRoot.querySelector('.profile')
     if (!wrap || !menu || !btn) return
 
-    const abrir = async () => {
-      clearTimeout(this._menuTimer)
-      if (!this._identity) return
-      await this._loadProfilesMenu()
-      if (!menu.innerHTML) return
-      menu.hidden = false
-      btn.setAttribute('aria-expanded', 'true')
+    // En táctil el hover no existe: allí el menú lo abre y lo cierra el propio toque
+    // (ver `_onProfileClick`), y fuera de él se cierra al tocar en otro sitio.
+    if (!this._esTactil()) {
+      wrap.addEventListener('mouseenter', () => this._abrirMenu())
+      wrap.addEventListener('mouseleave', () => this._cerrarMenu())
+      wrap.addEventListener('focusin', () => this._abrirMenu())
+      wrap.addEventListener('focusout', () => this._cerrarMenu())
+    } else if (!this._fueraListener) {
+      this._fueraListener = (e) => { if (!this.contains(e.target)) this._cerrarMenu(true) }
+      document.addEventListener('click', this._fueraListener)
     }
-    const cerrar = () => {
-      clearTimeout(this._menuTimer)
-      this._menuTimer = setTimeout(() => {
-        menu.hidden = true
-        btn.setAttribute('aria-expanded', 'false')
-      }, 180) // margen para llegar del botón al menú sin que se cierre
+    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this._cerrarMenu(true); btn.focus() } })
+  }
+
+  async _abrirMenu () {
+    clearTimeout(this._menuTimer)
+    if (!this._identity) return
+    const menu = this.shadowRoot.querySelector('.prof-menu')
+    const btn = this.shadowRoot.querySelector('.profile')
+    if (!menu || !btn) return
+    await this._loadProfilesMenu()
+    if (!menu.innerHTML) return
+    menu.hidden = false
+    btn.setAttribute('aria-expanded', 'true')
+  }
+
+  /** `ya` = sin el margen de gracia para llegar del botón al menú. */
+  _cerrarMenu (ya = false) {
+    clearTimeout(this._menuTimer)
+    const hazlo = () => {
+      const menu = this.shadowRoot?.querySelector('.prof-menu')
+      const btn = this.shadowRoot?.querySelector('.profile')
+      if (menu) menu.hidden = true
+      if (btn) btn.setAttribute('aria-expanded', 'false')
     }
-    wrap.addEventListener('mouseenter', abrir)
-    wrap.addEventListener('mouseleave', cerrar)
-    wrap.addEventListener('focusin', abrir)
-    wrap.addEventListener('focusout', cerrar)
-    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { menu.hidden = true; btn.focus() } })
+    if (ya) hazlo(); else this._menuTimer = setTimeout(hazlo, 180)
   }
 
   /** Pinta la lista de perfiles del dispositivo (avatar + nombre + cuál está activo). */
@@ -235,6 +261,7 @@ class DotrinoTopbar extends HTMLElement {
           : `<button class="item" type="button" data-switch="${esc(p.id)}"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span></button>`
       }).join('')
       menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
+        `<a class="item" href="${esc(PROFILE_URL)}">${esc(t.openProfile)}</a>` +
         `<a class="item" href="${esc(CREATE_URL)}?return=${encodeURIComponent(location.href)}">＋ ${esc(t.newProfile)}</a>`
       menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
@@ -245,54 +272,35 @@ class DotrinoTopbar extends HTMLElement {
     } catch (_) { /* sin perfiles que ofrecer: el botón sigue funcionando igual */ }
   }
 
-  _onProfileClick () {
-    // Evento cancelable: si la app lo previene, maneja el perfil a su manera.
-    const ev = new CustomEvent('dotrino-profile', { bubbles: true, composed: true, cancelable: true })
-    const proceed = this.dispatchEvent(ev)
-    if (proceed && this._identity && this._reputation) this.openMyProfile()
-  }
+  /**
+   * Un clic en el avatar TE LLEVA A TU PERFIL (la página), no abre un popup. El modal se
+   * quitó: duplicaba lo que ya está en `profile.dotrino.com` —y peor, hacía que el mismo
+   * botón hiciera cosas distintas según la app—. Ahora hay un solo sitio donde vive tu
+   * perfil, y desde cualquier app se llega igual.
+   *
+   * En pantallas TÁCTILES no hay «pasar el ratón», así que el primer toque abre el menú
+   * (con «Abrir mi perfil» dentro) en vez de navegar: si no, el cambio rápido de perfil
+   * sería inalcanzable en un móvil.
+   */
+  _onProfileClick (ev) {
+    const evento = new CustomEvent('dotrino-profile', { bubbles: true, composed: true, cancelable: true })
+    if (!this.dispatchEvent(evento)) return // la app lo maneja a su manera
 
-  /** Abre el modal "Mi perfil". opts.editable → modal editable (onboarding "ponte un apodo"). */
-  async openMyProfile (opts = {}) {
-    const provider = this._ensureProvider()
-    if (!provider) return // sin identity/reputation no hay de dónde sacar los datos
-    const id = this._identity
-    let pubkey = null; let name = null
-    try { const cur = id.currentProfile ? await id.currentProfile() : null; if (cur) { pubkey = cur.pubkey; name = cur.name } } catch (_) {}
-    if (!pubkey) pubkey = id.me && id.me.publickey
-    if (!name) name = id.me && id.me.nickname
-    if (!pubkey) return
-    this._closeProfile()
-    const el = document.createElement('dotrino-profile')
-    el.setAttribute('modal', '')
-    el.setAttribute('mode', 'self')
-    el.setAttribute('pubkey', pubkey)
-    if (name) el.setAttribute('name', name)
-    el.setAttribute('lang', this._lang)
-    if (opts.editable) el.setAttribute('allow-edit', '')
-    if (this._profileTheme && typeof this._profileTheme === 'object') {
-      for (const k in this._profileTheme) { try { el.style.setProperty(k, this._profileTheme[k]) } catch (_) {} }
+    if (this._esTactil()) {
+      const menu = this.shadowRoot.querySelector('.prof-menu')
+      if (menu && menu.hidden) { ev?.preventDefault?.(); this._abrirMenu(); return }
+      if (menu && !menu.hidden) { this._cerrarMenu(true); return }
     }
-    el.provider = provider
-    el.addEventListener('cc-profile-name', (e) => {
-      // Re-emite para que la app reanude una acción pendiente (ensureNick).
-      this.dispatchEvent(new CustomEvent('dotrino-profile-name', { detail: e.detail, bubbles: true, composed: true }))
-      this._refreshButtonAvatar()
-    })
-    el.addEventListener('cc-profile-close', () => {
-      this._closeProfile()
-      this.dispatchEvent(new CustomEvent('dotrino-profile-close', { bubbles: true, composed: true }))
-    })
-    this._profileEl = el
-    document.body.appendChild(el) // a body: sobrevive a re-render del topbar; el backdrop es fixed
-    // Integra el modal con el "volver" del ecosistema (botón físico Android / gesto
-    // iOS / atrás del navegador): abrir empuja una capa que, al volver, lo cierra.
-    try { const nav = getBackNav(); if (nav) this._profileLayer = nav.open(() => this._closeProfile()) } catch (_) {}
+    this._irAMiPerfil()
   }
 
-  _closeProfile () {
-    if (this._profileLayer) { try { this._profileLayer.close() } catch (_) {} this._profileLayer = null }
-    if (this._profileEl) { try { this._profileEl.remove() } catch (_) {} this._profileEl = null }
+  /** Sin puntero fino (móvil/tablet): no existe el hover, hay que poder tocar. */
+  _esTactil () {
+    try { return window.matchMedia('(hover: none), (pointer: coarse)').matches } catch (_) { return false }
+  }
+
+  _irAMiPerfil () {
+    try { location.href = PROFILE_URL } catch (_) {}
   }
 
   _resolveLang () {
@@ -497,7 +505,7 @@ class DotrinoTopbar extends HTMLElement {
 
     this.shadowRoot.querySelectorAll('.lang button').forEach((b) =>
       b.addEventListener('click', () => this.setLang(b.dataset.lang)))
-    this.shadowRoot.querySelector('.profile')?.addEventListener('click', () => this._onProfileClick())
+    this.shadowRoot.querySelector('.profile')?.addEventListener('click', (e) => this._onProfileClick(e))
     this._wireProfileMenu()
   }
 
