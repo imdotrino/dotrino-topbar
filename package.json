@@ -34,5 +34,11 @@
     "@dotrino/identity": ">=0.21.0"
   },
   "author": "seyacat",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  }
 }
