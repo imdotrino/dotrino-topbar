@@ -337,6 +337,12 @@ class DotrinoTopbar extends HTMLElement {
     const avatar = this.getAttribute('avatar') || ''
     const home = this.getAttribute('home') || 'https://dotrino.com'
 
+    // `support-no-count` apaga el conteo de aperturas de la moneda, que se registra en
+    // el store COMPARTIDO (store.dotrino.com, un iframe). Una app que no puede hablarle a
+    // ningún dominio de Dotrino —el Inspector corre en tu máquina y esa es su promesa—
+    // no tenía forma de evitarlo desde el topbar y le salía un iframe bloqueado en la
+    // consola. El conteo es opt-out, no opt-in: las apps del ecosistema lo quieren.
+    //
     // `support-*` se propaga TAL CUAL a la moneda. Incluye lo de compartir
     // (share-url/share-text/app/x-handle): la moneda vive en NUESTRO shadow DOM
     // y la recreamos en cada render, así que una app que quisiera enchufar su
@@ -353,6 +359,7 @@ class DotrinoTopbar extends HTMLElement {
       ${this._attr('support-app') ? `app="${this._attr('support-app')}"` : ''}
       ${this._attr('support-x-handle') ? `x-handle="${this._attr('support-x-handle')}"` : ''}
       ${has('support-contact') ? 'contact' : ''}
+      ${has('support-no-count') ? 'no-count' : ''}
       lang="${lang}"></dotrino-support>`
 
     // El botón va envuelto para poder colgarle el CAMBIO RÁPIDO de perfil: al pasar el

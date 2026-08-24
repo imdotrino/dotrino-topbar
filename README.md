@@ -73,6 +73,7 @@ import '@dotrino/topbar'
 | `support-repo` | repo para el botón "reportar" del support |
 | `support-discord` | invitación de Discord del support |
 | `support-contact` | pasa `contact` a `<dotrino-support>` |
+| `support-no-count` | pasa `no-count`: la moneda no registra la apertura en el store compartido. Para apps que **no hablan con ningún dominio de Dotrino** (las que corren en la máquina del usuario) |
 | `no-support` | oculta la moneda de support |
 
 ## Eventos (bubbles, composed)
