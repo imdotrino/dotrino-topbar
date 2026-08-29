@@ -38,6 +38,8 @@
  *   support-repo     repo para el botón "reportar" del support
  *   support-discord  invitación de Discord del support
  *   support-contact  si está, pasa `contact` a <dotrino-support>
+ *   support-no-bubble  si está, la moneda no enseña sola su burbuja la primera vez
+ *   support-no-count   si está, la moneda no cuenta la apertura en el store compartido
  *   support-share-url / support-share-text / support-app / support-x-handle
  *                    se propagan tal cual a la moneda, para las apps que enchufan
  *                    su propio enlace al compartir (p. ej. el de invitación de los
@@ -337,6 +339,11 @@ class DotrinoTopbar extends HTMLElement {
     const avatar = this.getAttribute('avatar') || ''
     const home = this.getAttribute('home') || 'https://dotrino.com'
 
+    // `support-no-bubble` apaga la burbuja que la moneda enseña sola la primera vez. En
+    // una página tiene sentido; en una ventana pequeña que se abre y se cierra veinte
+    // veces al día —el popup de una extensión— tapa el contenido en cada apertura. La
+    // moneda ya lo admite (`no-bubble`); lo que faltaba era poder decírselo desde aquí.
+    //
     // `support-no-count` apaga el conteo de aperturas de la moneda, que se registra en
     // el store COMPARTIDO (store.dotrino.com, un iframe). Una app que no puede hablarle a
     // ningún dominio de Dotrino —el Inspector corre en tu máquina y esa es su promesa—
@@ -360,6 +367,7 @@ class DotrinoTopbar extends HTMLElement {
       ${this._attr('support-x-handle') ? `x-handle="${this._attr('support-x-handle')}"` : ''}
       ${has('support-contact') ? 'contact' : ''}
       ${has('support-no-count') ? 'no-count' : ''}
+      ${has('support-no-bubble') ? 'no-bubble' : ''}
       lang="${lang}"></dotrino-support>`
 
     // El botón va envuelto para poder colgarle el CAMBIO RÁPIDO de perfil: al pasar el
