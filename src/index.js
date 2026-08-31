@@ -94,14 +94,27 @@ import { avatarDataUri } from '@dotrino/identity/avatar' // identicon del perfil
 const PROFILE_URL = 'https://profile.dotrino.com/'
 /** Dónde se crea un perfil: una página común a todo el ecosistema (no un botón al vuelo). */
 const CREATE_URL = 'https://profile.dotrino.com/create'
+/**
+ * ADOPTAR UN PERFIL: leer una invitación y traer aquí una cuenta que YA existe.
+ *
+ * Es la otra mitad de «crear perfil» —de dónde sale la cuenta que vas a usar— y va en
+ * este menú porque es lo ÚNICO que está en todas las apps. La pantalla de emparejar de la
+ * bóveda tiene sus propias condiciones: en un aparato que ya vive en una bóveda no se
+ * ofrece, y entonces no quedaba NINGUNA forma de leer un QR. En un navegador todavía
+ * puedes escribir la dirección; en la app de Dotrino no hay barra de direcciones.
+ *
+ * `/d` no tiene ninguna condición y atiende cualquier invitación —entrar en una bóveda,
+ * entregarle esta cuenta o estrenar una—, porque el modo lo trae el propio QR.
+ */
+const ADOPT_URL = 'https://vault.dotrino.com/d'
 
 /** Escape mínimo para el HTML que arma el menú. */
 const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
 const T = {
-  es: { profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre' },
-  en: { profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile' }
+  es: { profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil', adoptProfile: 'Adoptar un perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre' },
+  en: { profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile', adoptProfile: 'Adopt a profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile' }
 }
 
 const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -257,7 +270,8 @@ class DotrinoTopbar extends HTMLElement {
       }).join('')
       menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
         `<a class="item" href="${esc(PROFILE_URL)}">${esc(t.openProfile)}</a>` +
-        `<a class="item" href="${esc(CREATE_URL)}?return=${encodeURIComponent(location.href)}">＋ ${esc(t.newProfile)}</a>`
+        `<a class="item" href="${esc(CREATE_URL)}?return=${encodeURIComponent(location.href)}">＋ ${esc(t.newProfile)}</a>` +
+        `<a class="item" href="${esc(ADOPT_URL)}?return=${encodeURIComponent(location.href)}">↧ ${esc(t.adoptProfile)}</a>`
       menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
         // Cambiar de perfil NO es reactivo por diseño: se recarga para que toda la app
