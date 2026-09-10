@@ -33,7 +33,7 @@ Vanilla:
      especificador desnudo NO resuelve en el navegador ("Failed to resolve module
      specifier"). `+esm` los reescribe a URLs del CDN. Por npm no aplica: el
      bundler los resuelve solo. -->
-<script type="module" src="https://cdn.jsdelivr.net/npm/@dotrino/topbar@0.5/+esm"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@dotrino/topbar@0.9/+esm"></script>
 
 <dotrino-topbar brand="Mi App" icon="/icon.svg"
   support-repo="imdotrino/mi-app"

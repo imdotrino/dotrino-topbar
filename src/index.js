@@ -498,10 +498,56 @@ class DotrinoTopbar extends HTMLElement {
         /* La barra hace flex-wrap: las acciones bajan a otra fila SOLO si no caben
            (overflow real), no siempre. Al envolver, margin-left:auto las mantiene
            a la derecha y la marca se queda arriba-izquierda. */
+
+        /*
+         * LA FILA MÓVIL, DE VERDAD (CONVENCIONES §5: «marca en su fila a la izquierda,
+         * botones abajo a la derecha»).
+         *
+         * Envolver ITEM A ITEM —lo de arriba— se porta bien cuando falta poco, y muy mal
+         * cuando falta mucho: en un teléfono de 400 px la caja de acciones se quedaba en
+         * 77 px y sus tres controles caían uno por línea, cada uno en su propia fila
+         * pegada al borde derecho. La barra medía 188 px de alto y el botón de perfil
+         * aparecía solo, a media pantalla. Se veía roto porque lo estaba.
+         *
+         * Aquí manda una REJILLA de dos filas, que es lo que se quería desde el principio:
+         * arriba volver + marca + TODAS las acciones en una fila a la derecha; abajo, las
+         * acciones de la app (el slot del medio) a lo ancho. 188 px → 93 px.
+         *
+         * La columna de la marca es la única elástica (minmax(0, 1fr)), así que lo que
+         * cede cuando falta ancho es el NOMBRE —con sus puntos suspensivos— y nunca un
+         * botón, que es lo que no se puede partir.
+         */
+        @media (max-width: 600px) {
+          .bar {
+            display: grid; align-items: center;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            grid-template-areas: "back brand actions" "mid mid mid";
+            column-gap: var(--dt-gap); row-gap: 8px;
+          }
+          /* En la rejilla ya no hace falta anclarlos arriba: cada uno tiene su celda. */
+          .back { grid-area: back; align-self: center; }
+          .brand { grid-area: brand; align-self: center; }
+          .actions { grid-area: actions; justify-self: end; flex: 0 0 auto; }
+          .mid { grid-area: mid; flex-wrap: wrap; row-gap: 6px; }
+          /* Sin acciones de la app, la segunda fila no existe (si no, dejaba un hueco). */
+          .mid:empty { display: none; }
+        }
+        /*
+         * MUY ANGOSTO: LA MARCA SE QUEDA EN EL ICONO.
+         *
+         * A 360 px el nombre se recortaba a «Do…», que no identifica nada; el icono sí. Se
+         * esconde SOLO cuando hay icono que lo sustituya — una app sin icono conserva su
+         * nombre aunque se recorte, porque quedarse sin las dos cosas es peor. Y solo
+         * afecta al nombre que pinta el componente: si la app trae su marca por el slot,
+         * es su decisión y no se toca.
+         */
+        @media (max-width: 430px) {
+          .brand.with-icon span { display: none; }
+        }
       </style>
       <header class="bar" part="bar">
         ${back}
-        <a class="brand" part="brand" href="${brandHref}">
+        <a class="brand${icon ? ' with-icon' : ''}" part="brand" href="${brandHref}">
           <slot name="brand">
             ${icon ? `<img part="brand-icon" src="${icon}" alt="" width="28" height="28" onerror="this.style.display='none'" />` : ''}
             ${brand ? `<span part="brand-name">${brand}</span>` : ''}
