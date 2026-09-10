@@ -35,6 +35,11 @@
   },
   "author": "seyacat",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imdotrino/dotrino-topbar.git"
+  },
+  "homepage": "https://dotrino.com/",
   "devDependencies": {
     "typescript": "5.9.3"
   },
