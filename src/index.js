@@ -32,6 +32,14 @@
  *   no-back          oculta el chevron de volver
  *   no-lang          oculta el toggle de idioma (apps de un solo idioma)
  *   profile          muestra el botón de perfil (§6.1)
+ *   profile-href     a dónde lleva «Abrir mi perfil» (por defecto profile.dotrino.com).
+ *                    Para apps cuyo perfil NO vive ahí — p. ej. una extensión, con su
+ *                    identidad en el service worker.
+ *   profile-new-href   ídem para «Crear perfil»
+ *   profile-adopt-href ídem para «Adoptar un perfil»
+ *   profile-target   `_blank` para que esas tres abran en otra pestaña. Lo necesita quien
+ *                    vive en una ventana de la que no se puede salir (el popup de una
+ *                    extensión) o quien no quiere perder la pantalla en la que está.
  *   avatar           data-URI del avatar del perfil activo (si falta: silueta o,
  *                    si se pasó `identity`, el identicon derivado del perfil activo)
  *   support-href     URL de support (default https://ko-fi.com/dotrino)
@@ -122,7 +130,7 @@ const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
   <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" /></svg>`
 
 class DotrinoTopbar extends HTMLElement {
-  static get observedAttributes () { return ['brand', 'icon', 'brand-href', 'lang', 'avatar', 'profile', 'support-share-url', 'support-share-text', 'support-app', 'support-x-handle'] }
+  static get observedAttributes () { return ['brand', 'icon', 'brand-href', 'lang', 'avatar', 'profile', 'profile-href', 'profile-new-href', 'profile-adopt-href', 'profile-target', 'support-share-url', 'support-share-text', 'support-app', 'support-x-handle'] }
 
   constructor () {
     super()
@@ -191,6 +199,32 @@ class DotrinoTopbar extends HTMLElement {
    * verdad se edita. Se mantiene el nombre para no romperlas.
    */
   openMyProfile () { this._irAMiPerfil() }
+
+  /**
+   * DÓNDE VIVE EL PERFIL, por si no es `profile.dotrino.com`.
+   *
+   * El menú llevaba esas tres direcciones fijas, y hay apps donde el perfil NO está ahí: la
+   * extensión del gestor de contraseñas lo tiene en una página suya, porque su identidad
+   * vive en el service worker y no en el iframe del ecosistema. Mandarlas a
+   * profile.dotrino.com las llevaría a otra identidad distinta de la que están usando.
+   *
+   * Sin los atributos, todo sigue apuntando a donde apuntaba.
+   */
+  get _profileHref () { return this.getAttribute('profile-href') || PROFILE_URL }
+  get _profileNewHref () { return this.getAttribute('profile-new-href') || CREATE_URL }
+  get _profileAdoptHref () { return this.getAttribute('profile-adopt-href') || ADOPT_URL }
+  /**
+   * DÓNDE SE ABREN esas tres. Por defecto en la misma pestaña, como cualquier enlace.
+   *
+   * Con `profile-target="_blank"` se abren en una nueva, que es lo que necesita quien vive
+   * en una ventana de la que no se puede salir — el popup de una extensión, donde navegar
+   * mete el perfil dentro de una ventanita de 400px, o una pantalla de trabajo que no
+   * quieres perder al mirar tu perfil.
+   */
+  get _profileTarget () {
+    const t = this.getAttribute('profile-target')
+    return t ? ` target="${esc(t)}" rel="noopener"` : ''
+  }
 
   async _refreshButtonAvatar () {
     const id = this._identity
@@ -269,9 +303,9 @@ class DotrinoTopbar extends HTMLElement {
           : `<button class="item" type="button" data-switch="${esc(p.id)}"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span></button>`
       }).join('')
       menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
-        `<a class="item" href="${esc(PROFILE_URL)}">${esc(t.openProfile)}</a>` +
-        `<a class="item" href="${esc(CREATE_URL)}?return=${encodeURIComponent(location.href)}">＋ ${esc(t.newProfile)}</a>` +
-        `<a class="item" href="${esc(ADOPT_URL)}?return=${encodeURIComponent(location.href)}">↧ ${esc(t.adoptProfile)}</a>`
+        `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">${esc(t.openProfile)}</a>` +
+        `<a class="item"${this._profileTarget} href="${esc(this._profileNewHref)}${this._profileNewHref === CREATE_URL ? '?return=' + encodeURIComponent(location.href) : ''}">＋ ${esc(t.newProfile)}</a>` +
+        `<a class="item"${this._profileTarget} href="${esc(this._profileAdoptHref)}${this._profileAdoptHref === ADOPT_URL ? '?return=' + encodeURIComponent(location.href) : ''}">↧ ${esc(t.adoptProfile)}</a>`
       menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
         // Cambiar de perfil NO es reactivo por diseño: se recarga para que toda la app
@@ -299,7 +333,7 @@ class DotrinoTopbar extends HTMLElement {
   }
 
   _irAMiPerfil () {
-    try { location.href = PROFILE_URL } catch (_) {}
+    try { location.href = this._profileHref } catch (_) {}
   }
 
   _resolveLang () {
