@@ -12,8 +12,8 @@
  *                          gesto iOS / atrás del navegador (`<dotrino-back>`).
  *   - `@dotrino/support` → moneda de soporte/donación (`<dotrino-support>`).
  *   El botón de perfil va en TODA app (§6.1: no existen las apps sin identidad):
- *   con `.identity` + `.reputation` el topbar abre el modal solo; si no, emite
- *   `dotrino-profile` y la app decide.
+ *   con `.identity` LLEVA a profile.dotrino.com y ofrece cambiar de perfil; si no,
+ *   emite `dotrino-profile` y la app decide.
  *
  * Uso vanilla (por CDN va con `+esm`, NO con /src/index.js: los imports desnudos
  * de abajo no resuelven en el navegador; `+esm` los reescribe):
@@ -56,14 +56,12 @@
  *                    tiene forma de llegar a ella.
  *   no-support       oculta la moneda de support
  *
- * Perfil (§6.1) — el topbar es DUEÑO del modal "Mi perfil" para que la app NO fije
- * la versión de @dotrino/profile (viaja dentro de @dotrino/topbar). Propiedades JS:
+ * Perfil (§6.1). Propiedades JS:
  *   .identity     instancia de @dotrino/identity (Identity.connect())
  *   .reputation   instancia de @dotrino/reputation (createVaultReputation(id))
  *   .profileTheme objeto de CSS vars --ccp-* para tematizar el modal (opcional)
- * Con `identity` + `reputation`, al pulsar el botón el topbar abre el modal solo.
  * El botón de perfil LLEVA a profile.dotrino.com (no abre modal: se quitó porque duplicaba
- * esa página). Al pasar el ratón —o al tocarlo en móvil— ofrece cambiar de perfil.
+ * esa página) — o a donde diga `profile-href`. Al pasar el ratón —o al tocarlo en móvil— ofrece cambiar de perfil.
  * (antes: openMyProfile({ editable }) abría un modal editable para el onboarding
  * "ponte un apodo"). Si NO se setea identity, el botón solo emite 'dotrino-profile'
  * (clásico) y la app renderiza su propio <dotrino-profile>.
