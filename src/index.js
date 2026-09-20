@@ -324,13 +324,21 @@ class DotrinoTopbar extends HTMLElement {
       }).join('')
       // SALIR solo aparece cuando hay de dónde salir: la cuenta activa se abrió con una
       // contraseña. Para las demás no existe — de una cuenta tuya no se «sale».
+      //
+      // Y si la app empaqueta un `@dotrino/identity` anterior a 0.96.1, su cliente no tiene
+      // `logoutLogin`: el botón no haría NADA y el usuario se quedaría dentro sin saber por
+      // qué. En ese caso se enseña igual, pero llevando a la página del perfil, que sí sabe
+      // cerrarlo. Un botón que calla es peor que uno que te manda a otro sitio.
       const dentro = lista.find((p) => p.current && p.login)
+      const puedeSalir = typeof id.logoutLogin === 'function'
       menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
         `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">${esc(t.openProfile)}</a>` +
         `<a class="item"${this._profileTarget} href="${esc(this._profileNewHref)}${this._profileNewHref === CREATE_URL ? '?return=' + encodeURIComponent(location.href) : ''}">＋ ${esc(t.newProfile)}</a>` +
         `<a class="item"${this._profileTarget} href="${esc(this._profileAdoptHref)}${this._profileAdoptHref === ADOPT_URL ? '?return=' + encodeURIComponent(location.href) : ''}">↧ ${esc(t.adoptProfile)}</a>` +
         (dentro
-          ? `<button class="item" type="button" data-logout="1">⇥ ${esc(t.logout)}</button>`
+          ? (puedeSalir
+              ? `<button class="item" type="button" data-logout="1">⇥ ${esc(t.logout)}</button>`
+              : `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">⇥ ${esc(t.logout)}</a>`)
           : `<a class="item"${this._profileTarget} href="${esc(this._profileLoginHref)}${this._profileLoginHref === LOGIN_URL ? '?return=' + encodeURIComponent(location.href) : ''}">⇤ ${esc(t.login)}</a>`)
       menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
