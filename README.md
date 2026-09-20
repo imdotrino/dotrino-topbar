@@ -68,6 +68,11 @@ import '@dotrino/topbar'
 | `no-back` | oculta el chevron de volver |
 | `no-lang` | oculta el toggle de idioma |
 | `profile` | muestra el botón de perfil (§6.1) |
+| `profile-href` | a dónde lleva «Abrir mi perfil» (default `https://profile.dotrino.com/`) |
+| `profile-new-href` | ídem para «Crear perfil» |
+| `profile-adopt-href` | ídem para «Adoptar un perfil» |
+| `profile-login-href` | ídem para «Iniciar sesión» (entrar con usuario y contraseña en un equipo prestado; default `https://profile.dotrino.com/login`) |
+| `profile-target` | `_blank` para que esas cuatro abran en otra pestaña (popup de extensión) |
 | `avatar` | data-URI del avatar del perfil activo (si falta: silueta) |
 | `support-href` | URL de support (default `https://ko-fi.com/dotrino`) |
 | `support-repo` | repo para el botón "reportar" del support |

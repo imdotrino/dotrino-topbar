@@ -37,6 +37,7 @@
  *                    identidad en el service worker.
  *   profile-new-href   ídem para «Crear perfil»
  *   profile-adopt-href ídem para «Adoptar un perfil»
+ *   profile-login-href ídem para «Iniciar sesión» (entrar con usuario y contraseña)
  *   profile-target   `_blank` para que esas tres abran en otra pestaña. Lo necesita quien
  *                    vive en una ventana de la que no se puede salir (el popup de una
  *                    extensión) o quien no quiere perder la pantalla en la que está.
@@ -113,14 +114,30 @@ const CREATE_URL = 'https://profile.dotrino.com/create'
  * entregarle esta cuenta o estrenar una—, porque el modo lo trae el propio QR.
  */
 const ADOPT_URL = 'https://vault.dotrino.com/d'
+/**
+ * ENTRAR CON USUARIO Y CONTRASEÑA (`dotrino-passmanager/docs/temporary-access.md` §3.4).
+ *
+ * Es la puerta del equipo prestado: un aparato de tu cuenta cuya llave vive en tu bóveda y
+ * se abre con una contraseña. Va en ESTE menú porque es el único sitio que está en todas
+ * las apps — quien llega a un equipo que no es suyo abre la que sea y entra desde ahí.
+ */
+const LOGIN_URL = 'https://profile.dotrino.com/login'
 
 /** Escape mínimo para el HTML que arma el menú. */
 const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
 const T = {
-  es: { profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil', adoptProfile: 'Adoptar un perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre' },
-  en: { profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile', adoptProfile: 'Adopt a profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile' }
+  es: {
+    profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil',
+    adoptProfile: 'Adoptar un perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre',
+    login: 'Iniciar sesión', logout: 'Salir', onlyHere: 'solo en esta pestaña'
+  },
+  en: {
+    profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile',
+    adoptProfile: 'Adopt a profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile',
+    login: 'Sign in', logout: 'Sign out', onlyHere: 'this tab only'
+  }
 }
 
 const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -128,7 +145,7 @@ const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
   <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" /></svg>`
 
 class DotrinoTopbar extends HTMLElement {
-  static get observedAttributes () { return ['brand', 'icon', 'brand-href', 'lang', 'avatar', 'profile', 'profile-href', 'profile-new-href', 'profile-adopt-href', 'profile-target', 'support-share-url', 'support-share-text', 'support-app', 'support-x-handle'] }
+  static get observedAttributes () { return ['brand', 'icon', 'brand-href', 'lang', 'avatar', 'profile', 'profile-href', 'profile-new-href', 'profile-adopt-href', 'profile-login-href', 'profile-target', 'support-share-url', 'support-share-text', 'support-app', 'support-x-handle'] }
 
   constructor () {
     super()
@@ -211,6 +228,7 @@ class DotrinoTopbar extends HTMLElement {
   get _profileHref () { return this.getAttribute('profile-href') || PROFILE_URL }
   get _profileNewHref () { return this.getAttribute('profile-new-href') || CREATE_URL }
   get _profileAdoptHref () { return this.getAttribute('profile-adopt-href') || ADOPT_URL }
+  get _profileLoginHref () { return this.getAttribute('profile-login-href') || LOGIN_URL }
   /**
    * DÓNDE SE ABREN esas tres. Por defecto en la misma pestaña, como cualquier enlace.
    *
@@ -296,20 +314,39 @@ class DotrinoTopbar extends HTMLElement {
       const filas = lista.map((p) => {
         const img = p.avatar || avatarDataUri(p.pubkey || p.id || '', { size: 44 })
         const nombre = p.name || t.unnamedProfile
+        // UNA CUENTA A LA QUE SE ENTRÓ CON CONTRASEÑA se dice, y si es de paso se dice
+        // además que vive solo en esta pestaña: es lo que explica que no esté en las demás
+        // y que al cerrar no quede nada.
+        const nota = p.login ? `<small class="nota">${esc(p.login.address)}${p.login.volatile ? ' · ' + esc(t.onlyHere) : ''}</small>` : ''
         return p.current
-          ? `<div class="item" aria-current="true"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span><span class="marca" aria-hidden="true">✓</span></div>`
-          : `<button class="item" type="button" data-switch="${esc(p.id)}"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}</span></button>`
+          ? `<div class="item" aria-current="true"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}${nota}</span><span class="marca" aria-hidden="true">✓</span></div>`
+          : `<button class="item" type="button" data-switch="${esc(p.id)}"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}${nota}</span></button>`
       }).join('')
+      // SALIR solo aparece cuando hay de dónde salir: la cuenta activa se abrió con una
+      // contraseña. Para las demás no existe — de una cuenta tuya no se «sale».
+      const dentro = lista.find((p) => p.current && p.login)
       menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
         `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">${esc(t.openProfile)}</a>` +
         `<a class="item"${this._profileTarget} href="${esc(this._profileNewHref)}${this._profileNewHref === CREATE_URL ? '?return=' + encodeURIComponent(location.href) : ''}">＋ ${esc(t.newProfile)}</a>` +
-        `<a class="item"${this._profileTarget} href="${esc(this._profileAdoptHref)}${this._profileAdoptHref === ADOPT_URL ? '?return=' + encodeURIComponent(location.href) : ''}">↧ ${esc(t.adoptProfile)}</a>`
+        `<a class="item"${this._profileTarget} href="${esc(this._profileAdoptHref)}${this._profileAdoptHref === ADOPT_URL ? '?return=' + encodeURIComponent(location.href) : ''}">↧ ${esc(t.adoptProfile)}</a>` +
+        (dentro
+          ? `<button class="item" type="button" data-logout="1">⇥ ${esc(t.logout)}</button>`
+          : `<a class="item"${this._profileTarget} href="${esc(this._profileLoginHref)}${this._profileLoginHref === LOGIN_URL ? '?return=' + encodeURIComponent(location.href) : ''}">⇤ ${esc(t.login)}</a>`)
       menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
         // Cambiar de perfil NO es reactivo por diseño: se recarga para que toda la app
         // arranque con el nuevo (las pestañas abiertas conservan el suyo).
         try { await id.switchProfile(b.getAttribute('data-switch')); location.reload() } catch (_) { b.disabled = false }
       }))
+      const salir = menu.querySelector('[data-logout]')
+      if (salir) {
+        salir.addEventListener('click', async () => {
+          salir.disabled = true
+          // Salir borra la cuenta de este navegador: hay que recargar igual que al
+          // cambiarse, porque la app entera está corriendo con ella.
+          try { await id.logoutLogin(); location.reload() } catch (_) { salir.disabled = false }
+        })
+      }
     } catch (_) { /* sin perfiles que ofrecer: el botón sigue funcionando igual */ }
   }
 
@@ -522,6 +559,7 @@ class DotrinoTopbar extends HTMLElement {
         .prof-menu .item[aria-current="true"] { color: var(--dt-accent, #9cc4ff); font-weight: 600; }
         .prof-menu .item img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
         .prof-menu .item span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .prof-menu .item .nota { display: block; font-size: 11px; font-weight: 400; color: var(--dt-muted, #8ea0b8); overflow: hidden; text-overflow: ellipsis; }
         /* El ✓ del perfil activo, con su propio hueco: antes iba pegado al borde. */
         .prof-menu .item .marca { flex: 0 0 auto; margin-left: 2px; opacity: .9; }
         .prof-menu .sep { height: 1px; margin: 4px 2px; background: var(--dt-border, #1e2a3d); }
