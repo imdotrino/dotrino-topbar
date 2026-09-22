@@ -11,9 +11,9 @@
  *   - `@dotrino/nav`     → chevron de volver + captura del botón físico Android /
  *                          gesto iOS / atrás del navegador (`<dotrino-back>`).
  *   - `@dotrino/support` → moneda de soporte/donación (`<dotrino-support>`).
- *   El botón de perfil va en TODA app (§6.1: no existen las apps sin identidad):
- *   con `.identity` LLEVA a profile.dotrino.com y ofrece cambiar de perfil; si no,
- *   emite `dotrino-profile` y la app decide.
+ *   El botón de perfil va en TODA página, también la portada de un servicio: con
+ *   `.identity` el menú lista los perfiles para cambiar; sin ella, solo los enlaces a
+ *   profile.dotrino.com. Antes de abrirlo emite `dotrino-profile` (cancelable).
  *
  * Uso vanilla (por CDN va con `+esm`, NO con /src/index.js: los imports desnudos
  * de abajo no resuelven en el navegador; `+esm` los reescribe):
@@ -64,8 +64,8 @@
  * El botón de perfil LLEVA a profile.dotrino.com (no abre modal: se quitó porque duplicaba
  * esa página) — o a donde diga `profile-href`. Al pasar el ratón —o al tocarlo en móvil— ofrece cambiar de perfil.
  * (antes: openMyProfile({ editable }) abría un modal editable para el onboarding
- * "ponte un apodo"). Si NO se setea identity, el botón solo emite 'dotrino-profile'
- * (clásico) y la app renderiza su propio <dotrino-profile>.
+ * "ponte un apodo"). Si NO se setea identity, el menú sale sin la lista de perfiles (solo
+ * los enlaces); la app que quiera otra cosa cancela 'dotrino-profile' con preventDefault.
  *
  * Eventos (bubbles, composed):
  *   dotrino-lang          { lang }  al cambiar de idioma
@@ -285,7 +285,6 @@ class DotrinoTopbar extends HTMLElement {
   }
 
   async _abrirMenu () {
-    if (!this._identity) return
     const menu = this.shadowRoot.querySelector('.prof-menu')
     const btn = this.shadowRoot.querySelector('.profile')
     if (!menu || !btn) return
@@ -293,6 +292,18 @@ class DotrinoTopbar extends HTMLElement {
     if (!menu.innerHTML) return
     menu.hidden = false
     btn.setAttribute('aria-expanded', 'true')
+  }
+
+  /** Los enlaces del menú: abrir, crear, adoptar, y entrar o salir. */
+  _profileLinks (t, dentro, puedeSalir) {
+    return `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">${esc(t.openProfile)}</a>` +
+      `<a class="item"${this._profileTarget} href="${esc(this._profileNewHref)}${this._profileNewHref === CREATE_URL ? '?return=' + encodeURIComponent(location.href) : ''}">＋ ${esc(t.newProfile)}</a>` +
+      `<a class="item"${this._profileTarget} href="${esc(this._profileAdoptHref)}${this._profileAdoptHref === ADOPT_URL ? '?return=' + encodeURIComponent(location.href) : ''}">↧ ${esc(t.adoptProfile)}</a>` +
+      (dentro
+        ? (puedeSalir
+            ? `<button class="item" type="button" data-logout="1">⇥ ${esc(t.logout)}</button>`
+            : `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">⇥ ${esc(t.logout)}</a>`)
+        : `<a class="item"${this._profileTarget} href="${esc(this._profileLoginHref)}${this._profileLoginHref === LOGIN_URL ? '?return=' + encodeURIComponent(location.href) : ''}">⇤ ${esc(t.login)}</a>`)
   }
 
   _cerrarMenu () {
@@ -306,8 +317,12 @@ class DotrinoTopbar extends HTMLElement {
   async _loadProfilesMenu () {
     const id = this._identity
     const menu = this.shadowRoot.querySelector('.prof-menu')
-    if (!id || !menu || typeof id.listProfiles !== 'function') return
+    if (!menu) return
     const t = T[this._lang] || T.es
+    // SIN IDENTIDAD el menú sale igual, con los enlaces y sin la lista: una página que no
+    // carga la bóveda (la portada de una extensión o de un servicio) lleva el mismo botón
+    // que cualquier app, y el botón no puede quedarse mudo al pulsarlo.
+    if (!id || typeof id.listProfiles !== 'function') { menu.innerHTML = this._profileLinks(t, false); return }
     try {
       const lista = await id.listProfiles()
       if (!Array.isArray(lista) || !lista.length) return
@@ -332,14 +347,7 @@ class DotrinoTopbar extends HTMLElement {
       const dentro = lista.find((p) => p.current && p.login)
       const puedeSalir = typeof id.logoutLogin === 'function'
       menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
-        `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">${esc(t.openProfile)}</a>` +
-        `<a class="item"${this._profileTarget} href="${esc(this._profileNewHref)}${this._profileNewHref === CREATE_URL ? '?return=' + encodeURIComponent(location.href) : ''}">＋ ${esc(t.newProfile)}</a>` +
-        `<a class="item"${this._profileTarget} href="${esc(this._profileAdoptHref)}${this._profileAdoptHref === ADOPT_URL ? '?return=' + encodeURIComponent(location.href) : ''}">↧ ${esc(t.adoptProfile)}</a>` +
-        (dentro
-          ? (puedeSalir
-              ? `<button class="item" type="button" data-logout="1">⇥ ${esc(t.logout)}</button>`
-              : `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">⇥ ${esc(t.logout)}</a>`)
-          : `<a class="item"${this._profileTarget} href="${esc(this._profileLoginHref)}${this._profileLoginHref === LOGIN_URL ? '?return=' + encodeURIComponent(location.href) : ''}">⇤ ${esc(t.login)}</a>`)
+        this._profileLinks(t, dentro, puedeSalir)
       menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
         // Cambiar de perfil NO es reactivo por diseño: se recarga para que toda la app

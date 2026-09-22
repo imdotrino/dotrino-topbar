@@ -20,8 +20,11 @@ piezas compartidas para que la app importe **una sola cosa**:
   volver + captura del botón físico Android / gesto iOS / atrás del navegador.
 - **[`@dotrino/support`](https://www.npmjs.com/package/@dotrino/support)** →
   moneda de soporte/donación.
-- Botón de **perfil** opcional (apps con identidad): emite `dotrino-profile`; la
-  app abre su `<dotrino-profile>` y le pasa el avatar del perfil activo.
+- Botón de **perfil** (atributo `profile`), en **toda** página: también la portada de un
+  servicio o de una extensión. Abre un menú con los enlaces a `profile.dotrino.com`
+  (abrir, crear, adoptar, iniciar sesión). Si la página le pasa `.identity`, el menú
+  lista además los perfiles del dispositivo para cambiar, y el botón muestra el avatar
+  del activo. Antes de abrirse emite `dotrino-profile` (cancelable).
 
 ## Uso
 
@@ -67,7 +70,7 @@ import '@dotrino/topbar'
 | `home` | fallback de "volver" (default `https://dotrino.com`) |
 | `no-back` | oculta el chevron de volver |
 | `no-lang` | oculta el toggle de idioma |
-| `profile` | muestra el botón de perfil (§6.1) |
+| `profile` | muestra el botón de perfil (§6.1). Funciona sin `.identity`: el menú sale con los enlaces y sin la lista de perfiles |
 | `profile-href` | a dónde lleva «Abrir mi perfil» (default `https://profile.dotrino.com/`) |
 | `profile-new-href` | ídem para «Crear perfil» |
 | `profile-adopt-href` | ídem para «Adoptar un perfil» |
