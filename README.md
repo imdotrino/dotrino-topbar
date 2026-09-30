@@ -75,6 +75,7 @@ import '@dotrino/topbar'
 | `profile-new-href` | ídem para «Crear perfil» |
 | `profile-adopt-href` | ídem para «Adoptar un perfil» |
 | `profile-login-href` | ídem para «Iniciar sesión» (entrar con usuario y contraseña en un equipo prestado; default `https://profile.dotrino.com/login`) |
+| `profile-vault-href` | a dónde lleva «Enlazar a mi bóveda» / «Volver a enlazar» del estado del respaldo (default `https://profile.dotrino.com/vault`) |
 | `profile-target` | `_blank` para que esas cuatro abran en otra pestaña (popup de extensión) |
 | `avatar` | data-URI del avatar del perfil activo (si falta: silueta) |
 | `support-href` | URL de support (default `https://ko-fi.com/dotrino`) |
@@ -83,6 +84,29 @@ import '@dotrino/topbar'
 | `support-contact` | pasa `contact` a `<dotrino-support>` |
 | `support-no-count` | pasa `no-count`: la moneda no registra la apertura en el store compartido. Para apps que **no hablan con ningún dominio de Dotrino** (las que corren en la máquina del usuario) |
 | `no-support` | oculta la moneda de support |
+
+## El estado del respaldo (`.store`)
+
+Pásale a la barra el almacén de la app (`@dotrino/store` ≥ 0.11, ya conectado) y el
+botón de perfil lleva un punto con el estado del respaldo en la bóveda:
+
+| Punto | Qué significa |
+|---|---|
+| verde | respaldado, nada pendiente |
+| ámbar | sincronizando o con cambios subiendo |
+| gris | solo en este navegador (el perfil no está enlazado a una bóveda) |
+| rojo | no se respalda: la bóveda rechaza a este aparato, lo echaron, o falla la copia |
+
+Al abrir el menú, arriba sale qué pasa, cuántos cambios faltan y la única acción que lo
+arregla («Volver a enlazar» o «Reintentar»).
+
+```js
+const store = await Store.connect({ identity })
+document.querySelector('dotrino-topbar').store = store
+```
+
+Existe porque un navegador pasó 12 días sin respaldar nada (la bóveda lo rechazaba) y el
+único aviso estaba dentro de los ajustes de una app: se perdieron datos.
 
 ## Eventos (bubbles, composed)
 

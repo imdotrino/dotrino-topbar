@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>topbar backup</title>
+<script type="importmap">{"imports":{
+ "@dotrino/nav":"/node_modules/@dotrino/nav/src/index.js",
+ "@dotrino/support":"/node_modules/@dotrino/support/src/index.js",
+ "@dotrino/identity/avatar":"/node_modules/@dotrino/identity/vault/avatar.js"}}</script>
+</head><body style="background:#111;margin:0">
+<dotrino-topbar brand="Facturero" profile no-back lang="es"></dotrino-topbar>
+<script type="module">
+import '/src/index.js'
+// Almacén falso con la misma forma que @dotrino/store: `vault` + on('vault').
+const subs = new Set()
+window.fake = {
+  vault: { state: 'off', reason: 'no-identity', pending: 0, lastSyncAt: null, error: null, tooLarge: [] },
+  on (ev, fn) { subs.add(fn); return () => subs.delete(fn) },
+  async vaultSync () { window.synced = (window.synced || 0) + 1; return this.vault },
+  set (v) { this.vault = { ...this.vault, ...v }; for (const f of subs) f(this.vault) }
+}
+document.querySelector('dotrino-topbar').store = window.fake
+</script></body></html>

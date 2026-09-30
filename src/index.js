@@ -122,6 +122,8 @@ const ADOPT_URL = 'https://vault.dotrino.com/d'
  * las apps — quien llega a un equipo que no es suyo abre la que sea y entra desde ahí.
  */
 const LOGIN_URL = 'https://profile.dotrino.com/login'
+// Donde se enlaza este aparato a la bóveda (o se vuelve a enlazar si lo rechazó).
+const VAULT_URL = 'https://profile.dotrino.com/vault'
 
 /** Escape mínimo para el HTML que arma el menú. */
 const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
@@ -131,21 +133,82 @@ const T = {
   es: {
     profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil',
     adoptProfile: 'Adoptar un perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre',
-    login: 'Iniciar sesión', logout: 'Salir', onlyHere: 'solo en esta pestaña'
+    login: 'Iniciar sesión', logout: 'Salir', onlyHere: 'solo en esta pestaña',
+    backup: {
+      synced: 'Respaldado en tu bóveda',
+      saving: 'Copiando a tu bóveda…',
+      syncing: 'Sincronizando con tu bóveda…',
+      local: 'Solo en este navegador',
+      localDetail: 'Este perfil no está enlazado a una bóveda: si borras los datos del navegador, se pierden.',
+      rejected: 'Este aparato ya no puede guardar en tu bóveda',
+      rejectedDetail: 'Lo que hagas aquí no se respalda. Vuelve a enlazarlo para no perderlo.',
+      revoked: 'Este aparato ya no pertenece a la cuenta',
+      error: 'No se pudo copiar a tu bóveda',
+      pending: (n) => n === 1 ? '1 cambio sin respaldar' : `${n} cambios sin respaldar`,
+      last: 'Última copia: ',
+      relink: 'Volver a enlazar',
+      link: 'Enlazar a mi bóveda',
+      retry: 'Reintentar'
+    }
   },
   en: {
     profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile',
     adoptProfile: 'Adopt a profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile',
-    login: 'Sign in', logout: 'Sign out', onlyHere: 'this tab only'
+    login: 'Sign in', logout: 'Sign out', onlyHere: 'this tab only',
+    backup: {
+      synced: 'Backed up in your vault',
+      saving: 'Copying to your vault…',
+      syncing: 'Syncing with your vault…',
+      local: 'Only in this browser',
+      localDetail: 'This profile is not linked to a vault: if you clear the browser data, it is lost.',
+      rejected: 'This device can no longer save to your vault',
+      rejectedDetail: 'What you do here is not backed up. Link it again so you do not lose it.',
+      revoked: 'This device no longer belongs to the account',
+      error: 'Could not copy to your vault',
+      pending: (n) => n === 1 ? '1 change not backed up' : `${n} changes not backed up`,
+      last: 'Last copy: ',
+      relink: 'Link again',
+      link: 'Link to my vault',
+      retry: 'Try again'
+    }
   }
 }
+
+/**
+ * EL ESTADO DEL RESPALDO, EN UNA PALABRA. Sale de `store.vault` (@dotrino/store ≥ 0.11):
+ *
+ *   ok       respaldado y sin nada pendiente
+ *   busy     sincronizando, o con cambios que todavía están subiendo
+ *   local    sin bóveda enlazada: es un estado normal, no un error (se ve gris)
+ *   bad      la bóveda rechaza a este aparato, lo echaron, o el respaldo falla
+ *
+ * Existe por el 2026-09-28: un navegador pasó 12 días sin respaldar nada porque la bóveda
+ * lo rechazaba (`unauthorized: expired`), y el único sitio donde se veía era una tarjeta
+ * dentro de los ajustes de una app. Se perdieron facturas. Un fallo así tiene que verse
+ * en TODAS las apps, sin entrar a buscarlo.
+ */
+function backupLevel (s) {
+  if (!s || typeof s !== 'object') return null
+  if (s.state === 'off') {
+    if (s.reason === 'not-paired') return 'local'
+    if (s.reason === 'revoked') return 'bad'
+    return null // sin identidad o almacén cerrado: no hay nada que decir
+  }
+  if (s.state === 'error') return 'bad'
+  if (s.state === 'syncing' || s.pending > 0) return 'busy'
+  if (s.state === 'synced') return 'ok'
+  return null
+}
+
+/** «Rechazado» es distinto de «no contesta»: uno se arregla enlazando, el otro esperando. */
+const isRejected = (s) => s?.state === 'error' && s.error?.code === 'unauthorized'
 
 const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" /></svg>`
 
 class DotrinoTopbar extends HTMLElement {
-  static get observedAttributes () { return ['brand', 'icon', 'brand-href', 'lang', 'avatar', 'profile', 'profile-href', 'profile-new-href', 'profile-adopt-href', 'profile-login-href', 'profile-target', 'support-share-url', 'support-share-text', 'support-app', 'support-x-handle'] }
+  static get observedAttributes () { return ['brand', 'icon', 'brand-href', 'lang', 'avatar', 'profile', 'profile-href', 'profile-new-href', 'profile-adopt-href', 'profile-login-href', 'profile-vault-href', 'profile-target', 'support-share-url', 'support-share-text', 'support-app', 'support-x-handle'] }
 
   constructor () {
     super()
@@ -198,6 +261,96 @@ class DotrinoTopbar extends HTMLElement {
   }
   get reputation () { return this._reputation || null }
   set reputation (v) { v = v || null; if (v === this._reputation) return; this._reputation = v; this._provider = null }
+
+  /**
+   * El ALMACÉN de la app (`@dotrino/store`, ya conectado). Con él, el botón de perfil lleva
+   * un punto con el estado del respaldo en la bóveda y el menú dice qué pasa y cómo
+   * arreglarlo. Sin él no se pinta nada: el topbar no abre el almacén por su cuenta.
+   */
+  get store () { return this._store || null }
+  set store (v) {
+    v = v || null
+    if (v === this._store) return
+    this._offStore?.(); this._offStore = null
+    this._store = v
+    if (v && typeof v.on === 'function') this._offStore = v.on('vault', () => this._paintBackup())
+    this._paintBackup()
+  }
+
+  get _backup () {
+    try { return this._store ? this._store.vault : null } catch (_) { return null }
+  }
+
+  /** Pinta el punto del botón y, si el menú está abierto, su fila de estado. */
+  _paintBackup () {
+    const root = this.shadowRoot
+    if (!root) return
+    const s = this._backup
+    const level = backupLevel(s)
+    const t = T[this._lang] || T.es
+    const dot = root.querySelector('.backup-dot')
+    if (dot) {
+      dot.hidden = !level
+      dot.className = `backup-dot ${level || ''}`
+      dot.setAttribute('data-backup', level || '')
+    }
+    const btn = root.querySelector('.profile')
+    if (btn) {
+      const label = level ? `${t.profile} · ${this._backupTitle(s, t)}` : t.profile
+      btn.setAttribute('title', label); btn.setAttribute('aria-label', label)
+    }
+    const row = root.querySelector('.prof-menu .backup')
+    if (row) row.outerHTML = this._backupRow(t)
+    this._wireBackupRow()
+  }
+
+  _backupTitle (s, t) {
+    const b = t.backup
+    const level = backupLevel(s)
+    if (level === 'ok') return b.synced
+    if (level === 'local') return b.local
+    if (level === 'busy') return s.state === 'syncing' ? b.syncing : b.saving
+    if (s?.state === 'off' && s.reason === 'revoked') return b.revoked
+    if (isRejected(s)) return b.rejected
+    return b.error
+  }
+
+  /** La fila de arriba del menú: estado, detalle y la única acción que lo arregla. */
+  _backupRow (t) {
+    const s = this._backup
+    const level = backupLevel(s)
+    if (!level) return ''
+    const b = t.backup
+    const detalles = []
+    if (level === 'local') detalles.push(b.localDetail)
+    else if (isRejected(s)) detalles.push(b.rejectedDetail)
+    if (s.pending > 0) detalles.push(b.pending(s.pending))
+    // Solo si la hubo EN ESTA SESIÓN: el almacén no recuerda la fecha entre recargas, y
+    // «nunca» sería mentira en un aparato que sí respaldó ayer.
+    if (level !== 'local' && s.lastSyncAt) {
+      detalles.push(b.last + new Date(s.lastSyncAt).toLocaleString(this._lang === 'en' ? 'en-US' : 'es-EC', { dateStyle: 'short', timeStyle: 'short' }))
+    }
+    const relink = level === 'local' || isRejected(s) || (s.state === 'off' && s.reason === 'revoked')
+    const accion = relink
+      ? `<a class="item accion"${this._profileTarget} href="${esc(this._profileVaultHref)}" data-testid="backup-relink">${esc(level === 'local' ? b.link : b.relink)}</a>`
+      : level === 'bad'
+        ? `<button class="item accion" type="button" data-backup-retry="1" data-testid="backup-retry">${esc(b.retry)}</button>`
+        : ''
+    return `<div class="backup ${level}" data-testid="backup-status" data-backup="${level}">` +
+      `<div class="backup-head"><i class="backup-dot ${level}" aria-hidden="true"></i><span>${esc(this._backupTitle(s, t))}</span></div>` +
+      detalles.map((d) => `<small>${esc(d)}</small>`).join('') + accion + '</div>'
+  }
+
+  _wireBackupRow () {
+    const b = this.shadowRoot?.querySelector('[data-backup-retry]')
+    if (!b || !this._store) return
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      b.disabled = true
+      // El resultado ya llega por el evento 'vault'; aquí solo se evita el doble clic.
+      try { await this._store.vaultSync() } catch (_) {} finally { b.disabled = false }
+    })
+  }
   // Compat: algunas apps setean `profileTheme` para el modal, que ya no existe. Se acepta
   // y se ignora, para no romperlas por un atributo que ahora no pinta nada.
   get profileTheme () { return this._profileTheme || null }
@@ -229,6 +382,7 @@ class DotrinoTopbar extends HTMLElement {
   get _profileNewHref () { return this.getAttribute('profile-new-href') || CREATE_URL }
   get _profileAdoptHref () { return this.getAttribute('profile-adopt-href') || ADOPT_URL }
   get _profileLoginHref () { return this.getAttribute('profile-login-href') || LOGIN_URL }
+  get _profileVaultHref () { return this.getAttribute('profile-vault-href') || VAULT_URL }
   /**
    * DÓNDE SE ABREN esas tres. Por defecto en la misma pestaña, como cualquier enlace.
    *
@@ -322,7 +476,7 @@ class DotrinoTopbar extends HTMLElement {
     // SIN IDENTIDAD el menú sale igual, con los enlaces y sin la lista: una página que no
     // carga la bóveda (la portada de una extensión o de un servicio) lleva el mismo botón
     // que cualquier app, y el botón no puede quedarse mudo al pulsarlo.
-    if (!id || typeof id.listProfiles !== 'function') { menu.innerHTML = this._profileLinks(t, false); return }
+    if (!id || typeof id.listProfiles !== 'function') { menu.innerHTML = this._backupRow(t) + this._profileLinks(t, false); this._wireBackupRow(); return }
     try {
       const lista = await id.listProfiles()
       if (!Array.isArray(lista) || !lista.length) return
@@ -346,8 +500,9 @@ class DotrinoTopbar extends HTMLElement {
       // cerrarlo. Un botón que calla es peor que uno que te manda a otro sitio.
       const dentro = lista.find((p) => p.current && p.login)
       const puedeSalir = typeof id.logoutLogin === 'function'
-      menu.innerHTML = `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
+      menu.innerHTML = this._backupRow(t) + `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
         this._profileLinks(t, dentro, puedeSalir)
+      this._wireBackupRow()
       menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
         // Cambiar de perfil NO es reactivo por diseño: se recarga para que toda la app
@@ -477,6 +632,7 @@ class DotrinoTopbar extends HTMLElement {
         title="${t.profile}" aria-label="${t.profile}" data-testid="my-profile"
         aria-haspopup="true" aria-expanded="false">
         ${avatar ? `<img src="${avatar}" alt="" />` : PROFILE_SVG}</button>
+      <i class="backup-dot" part="backup-dot" data-testid="backup-dot" aria-hidden="true" hidden></i>
       <div class="prof-menu" part="profile-menu" data-testid="profile-menu" hidden></div>
     </div>` : ''
 
@@ -581,6 +737,31 @@ class DotrinoTopbar extends HTMLElement {
         .prof-menu .sep { height: 1px; margin: 4px 2px; background: var(--dt-border, #1e2a3d); }
         .prof-menu .head { padding: 4px 8px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dt-muted, #8ea0b8); }
         .profile svg { width: 20px; height: 20px; }
+        /* EL PUNTO DEL RESPALDO, sobre el botón de perfil. Verde: respaldado. Ámbar: subiendo.
+           Gris: solo en este navegador (normal si no hay bóveda). Rojo: no se respalda. */
+        .backup-dot {
+          width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: 0 0 auto;
+          background: var(--dt-muted); box-sizing: border-box;
+        }
+        .backup-dot[hidden] { display: none; }
+        .profile-wrap > .backup-dot {
+          position: absolute; right: -1px; bottom: -1px; pointer-events: none;
+          border: 2px solid var(--dotrino-topbar-dot-ring, #141028);
+        }
+        .backup-dot.ok { background: var(--dotrino-topbar-ok, #22c55e); }
+        .backup-dot.busy { background: var(--dotrino-topbar-busy, #f59e0b); }
+        .backup-dot.local { background: var(--dt-muted); }
+        .backup-dot.bad { background: var(--dotrino-topbar-bad, #ef4444); }
+        .profile-wrap > .backup-dot.bad { width: 12px; height: 12px; }
+        .prof-menu .backup {
+          display: flex; flex-direction: column; gap: 3px; padding: 7px 8px 8px; margin-bottom: 4px;
+          border-radius: 9px; border: 1px solid var(--dt-border, #1e2a3d); font-size: 13px;
+          color: var(--dt-text, #dbe7f7); white-space: normal;
+        }
+        .prof-menu .backup.bad { border-color: var(--dotrino-topbar-bad, #ef4444); }
+        .prof-menu .backup-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+        .prof-menu .backup small { display: block; font-size: 11.5px; color: var(--dt-muted, #8ea0b8); line-height: 1.35; }
+        .prof-menu .backup .accion { margin-top: 4px; justify-content: center; border: 1px solid var(--dt-line); font-weight: 600; }
         /* La barra hace flex-wrap: las acciones bajan a otra fila SOLO si no caben
            (overflow real), no siempre. Al envolver, margin-left:auto las mantiene
            a la derecha y la marca se queda arriba-izquierda. */
@@ -656,6 +837,7 @@ class DotrinoTopbar extends HTMLElement {
       b.addEventListener('click', () => this.setLang(b.dataset.lang)))
     this.shadowRoot.querySelector('.profile')?.addEventListener('click', (e) => this._onProfileClick(e))
     this._wireProfileMenu()
+    this._paintBackup()
   }
 
   _attr (n) { return this.getAttribute(n) }

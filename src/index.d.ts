@@ -23,6 +23,13 @@ export class DotrinoTopbar extends HTMLElement {
   identity: any
   /** Instancia de @dotrino/reputation (createVaultReputation(id)). */
   reputation: any
+  /**
+   * El almacén de la app (@dotrino/store ≥ 0.11, ya conectado). Con él, el botón de perfil
+   * lleva un punto con el estado del respaldo en la bóveda (verde respaldado, ámbar
+   * subiendo, gris solo en este navegador, rojo no se respalda) y el menú dice qué pasa y
+   * cómo arreglarlo.
+   */
+  store: any
   /** CSS vars --ccp-* para tematizar la tarjeta de perfil (opcional). */
   profileTheme: Record<string, string> | null
 }
