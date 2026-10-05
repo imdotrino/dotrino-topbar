@@ -940,7 +940,10 @@ class DotrinoTopbar extends HTMLElement {
         .net-dialog {
           position: relative; width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 48px);
           display: flex; flex-direction: column; overflow: hidden;
-          background: var(--dotrino-topbar-modal-bg, #141028); color: var(--dt-text);
+          /* El fondo es el de la barra (el tema de la app): con uno oscuro fijo, una app de tema
+             claro dejaba texto oscuro sobre fondo oscuro. Sin tema, el oscuro por defecto y
+             opaco (el de la barra es translúcido). */
+          background: var(--dotrino-topbar-modal-bg, var(--dotrino-topbar-bg, #141028)); color: var(--dt-text);
           border: 1px solid var(--dt-line); border-radius: 14px; box-shadow: 0 20px 50px rgba(0,0,0,.45);
         }
         .net-top { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--dt-line); }
@@ -955,6 +958,7 @@ class DotrinoTopbar extends HTMLElement {
         .net-state.on { background: var(--dotrino-topbar-ok, #22c55e); }
         .net-total { display: flex; gap: 12px; margin: 8px 0; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--dt-line); }
         .net-total span:first-child { flex: 1 1 auto; color: var(--dt-muted); }
+        .net-total span + span, .net-bytes span { white-space: nowrap; font-variant-numeric: tabular-nums; }
         .net-sub { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dt-muted); }
         .net-peer {
           display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
