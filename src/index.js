@@ -56,6 +56,12 @@
  *                    recreamos en cada render: sin este passthrough la app no
  *                    tiene forma de llegar a ella.
  *   no-support       oculta la moneda de support
+ *   no-net           oculta el botón de estadísticas de red
+ *
+ * Red. El botón de RED aparece solo cuando la página tiene un cliente del transporte
+ * conectado (`@dotrino/proxy-client` ≥ 0.28.0 se apunta en un registro de la página) y abre
+ * un modal con cada conexión, cuánto entró y salió y por dónde: proxy, WebRTC directo o
+ * WebRTC por TURN. La app no cablea nada.
  *
  * Perfil (§6.1). Propiedades JS:
  *   .identity     instancia de @dotrino/identity (Identity.connect())
@@ -134,6 +140,19 @@ const T = {
     profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil',
     adoptProfile: 'Adoptar un perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre',
     login: 'Iniciar sesión', logout: 'Salir', onlyHere: 'solo en esta pestaña',
+    net: {
+      button: 'Estadísticas de red', title: 'Estadísticas de red', close: 'Cerrar',
+      connected: 'Conectado', disconnected: 'Desconectado', server: 'Proxy',
+      received: 'Recibido', sent: 'Enviado', msgs: 'mensajes', since: 'Desde',
+      allProxy: 'Todo lo que pasó por el proxy', connections: 'Conexiones',
+      none: 'Todavía no hay conexiones con otros aparatos.',
+      note: 'Bytes del contenido, sin las cabeceras de la red.',
+      route: {
+        proxy: 'Proxy', connecting: 'Proxy · negociando WebRTC', failed: 'Proxy · WebRTC no salió',
+        direct: 'WebRTC directo', turn: 'WebRTC por TURN', webrtc: 'WebRTC'
+      },
+      path: { proxy: 'proxy', direct: 'directo', turn: 'TURN', webrtc: 'WebRTC' }
+    },
     backup: {
       synced: 'Respaldado en tu bóveda',
       saving: 'Copiando a tu bóveda…',
@@ -142,6 +161,7 @@ const T = {
       localDetail: 'Este perfil no está enlazado a una bóveda: si borras los datos del navegador, se pierden.',
       rejected: 'Este aparato ya no puede guardar en tu bóveda',
       rejectedDetail: 'Lo que hagas aquí no se respalda. Vuelve a enlazarlo para no perderlo.',
+      expiredDetail: 'Su permiso para guardar en tu bóveda caducó.',
       revoked: 'Este aparato ya no pertenece a la cuenta',
       error: 'No se pudo copiar a tu bóveda',
       pending: (n) => n === 1 ? '1 cambio sin respaldar' : `${n} cambios sin respaldar`,
@@ -155,6 +175,19 @@ const T = {
     profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile',
     adoptProfile: 'Adopt a profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile',
     login: 'Sign in', logout: 'Sign out', onlyHere: 'this tab only',
+    net: {
+      button: 'Network stats', title: 'Network stats', close: 'Close',
+      connected: 'Connected', disconnected: 'Disconnected', server: 'Proxy',
+      received: 'Received', sent: 'Sent', msgs: 'messages', since: 'Since',
+      allProxy: 'Everything that went through the proxy', connections: 'Connections',
+      none: 'No connections with other devices yet.',
+      note: 'Content bytes, without network headers.',
+      route: {
+        proxy: 'Proxy', connecting: 'Proxy · negotiating WebRTC', failed: 'Proxy · WebRTC failed',
+        direct: 'Direct WebRTC', turn: 'WebRTC via TURN', webrtc: 'WebRTC'
+      },
+      path: { proxy: 'proxy', direct: 'direct', turn: 'TURN', webrtc: 'WebRTC' }
+    },
     backup: {
       synced: 'Backed up in your vault',
       saving: 'Copying to your vault…',
@@ -163,6 +196,7 @@ const T = {
       localDetail: 'This profile is not linked to a vault: if you clear the browser data, it is lost.',
       rejected: 'This device can no longer save to your vault',
       rejectedDetail: 'What you do here is not backed up. Link it again so you do not lose it.',
+      expiredDetail: 'Its permission to save to your vault expired.',
       revoked: 'This device no longer belongs to the account',
       error: 'Could not copy to your vault',
       pending: (n) => n === 1 ? '1 change not backed up' : `${n} changes not backed up`,
@@ -203,6 +237,33 @@ function backupLevel (s) {
 /** «Rechazado» es distinto de «no contesta»: uno se arregla enlazando, el otro esperando. */
 const isRejected = (s) => s?.state === 'error' && s.error?.code === 'unauthorized'
 
+/**
+ * LOS CLIENTES DEL TRANSPORTE DE ESTA PÁGINA. Los apunta `@dotrino/proxy-client` (≥ 0.28.0)
+ * en `globalThis` con este Symbol.for, y avisa con el evento `dotrino-transports`. El topbar
+ * no importa el pilar: lo lee de ahí, así que vale para cualquier copia que lleve la app.
+ */
+const TRANSPORTS = Symbol.for('dotrino.transports')
+const transports = () => {
+  const r = globalThis[TRANSPORTS]
+  return r ? [...r].filter((c) => c && typeof c.stats === 'function') : []
+}
+
+/** 1536 → «1,5 KB». */
+function fmtBytes (n, lang) {
+  const loc = lang === 'en' ? 'en-US' : 'es-EC'
+  const u = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
+  return `${n.toLocaleString(loc, { maximumFractionDigits: i ? 1 : 0 })} ${u[i]}`
+}
+
+const sum = (o) => (o ? Object.values(o).reduce((a, b) => a + (b || 0), 0) : 0)
+const shortKey = (k) => { const v = String(k || ''); return v.length > 14 ? `${v.slice(0, 6)}…${v.slice(-6)}` : v }
+
+const NET_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M7 4v14" /><path d="M3.5 14.5 7 18l3.5-3.5" /><path d="M17 20V6" /><path d="M13.5 9.5 17 6l3.5 3.5" /></svg>`
+
 const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" /></svg>`
@@ -228,10 +289,16 @@ class DotrinoTopbar extends HTMLElement {
     }
     this.render()
     if (this._identity) this._refreshButtonAvatar()
+    if (!this._onTransports && typeof globalThis.addEventListener === 'function') {
+      this._onTransports = () => this._paintNetButton()
+      globalThis.addEventListener('dotrino-transports', this._onTransports)
+    }
   }
 
   disconnectedCallback () {
     this._cerrarMenu()
+    this._closeNet()
+    if (this._onTransports) { globalThis.removeEventListener('dotrino-transports', this._onTransports); this._onTransports = null }
     if (this._fueraListener) { document.removeEventListener('click', this._fueraListener); this._fueraListener = null }
   }
 
@@ -323,7 +390,12 @@ class DotrinoTopbar extends HTMLElement {
     const b = t.backup
     const detalles = []
     if (level === 'local') detalles.push(b.localDetail)
-    else if (isRejected(s)) detalles.push(b.rejectedDetail)
+    else if (isRejected(s)) {
+      // El motivo, si la bóveda lo dio (identity ≥ 0.107.2 + store ≥ 0.12.1): «caducó» se
+      // arregla enlazando, y decirlo ahorra adivinar.
+      if (s.error?.reason === 'expired') detalles.push(b.expiredDetail)
+      detalles.push(b.rejectedDetail)
+    }
     if (s.pending > 0) detalles.push(b.pending(s.pending))
     // Solo si la hubo EN ESTA SESIÓN: el almacén no recuerda la fecha entre recargas, y
     // «nunca» sería mentira en un aparato que sí respaldó ayer.
@@ -542,6 +614,93 @@ class DotrinoTopbar extends HTMLElement {
     try { location.href = this._profileHref } catch (_) {}
   }
 
+  /* ----- Estadísticas de red ----- */
+
+  /** El botón se ve solo si hay un cliente del transporte en la página. */
+  _paintNetButton () {
+    const b = this.shadowRoot?.querySelector('.net')
+    if (b) b.hidden = !transports().length
+  }
+
+  _openNet () {
+    const m = this.shadowRoot.querySelector('.net-modal')
+    if (!m) return
+    this._netOpen = true
+    m.hidden = false
+    this.shadowRoot.querySelector('.net')?.setAttribute('aria-expanded', 'true')
+    this._paintNet()
+    clearInterval(this._netTimer)
+    this._netTimer = setInterval(() => this._paintNet(), 1000)
+    m.querySelector('.net-close')?.focus()
+  }
+
+  _closeNet () {
+    this._netOpen = false
+    clearInterval(this._netTimer); this._netTimer = null
+    const m = this.shadowRoot?.querySelector('.net-modal')
+    if (m) m.hidden = true
+    this.shadowRoot?.querySelector('.net')?.setAttribute('aria-expanded', 'false')
+  }
+
+  /** Pide las cifras a cada cliente y repinta el cuerpo del modal. */
+  async _paintNet () {
+    const body = this.shadowRoot?.querySelector('.net-body')
+    if (!body || !this._netOpen) return
+    const lang = this._lang
+    const t = (T[lang] || T.es).net
+    const lista = await Promise.all(transports().map(async (c) => {
+      try { return await c.stats() } catch (e) { return { error: e?.message || String(e), url: c.url } }
+    }))
+    if (!this._netOpen) return
+    const html = lista.map((s) => this._netTransport(s, t, lang)).join('') || `<p class="net-empty">${esc(t.none)}</p>`
+    body.innerHTML = html + `<p class="net-note">${esc(t.note)}</p>`
+  }
+
+  _netTransport (s, t, lang) {
+    let host = s.url
+    try { host = new URL(s.url).host } catch (_) {}
+    if (s.error) return `<section class="net-tr"><div class="net-head"><b>${esc(host)}</b></div><p class="net-empty">${esc(s.error)}</p></section>`
+    const desde = new Date(s.since).toLocaleTimeString(lang === 'en' ? 'en-US' : 'es-EC', { hour: '2-digit', minute: '2-digit' })
+    const filas = s.peers.length
+      ? s.peers.map((p) => this._netPeer(p, t, lang)).join('')
+      : `<p class="net-empty">${esc(t.none)}</p>`
+    return `<section class="net-tr" data-testid="net-transport">
+      <div class="net-head">
+        <span class="net-state ${s.connected ? 'on' : 'off'}" aria-hidden="true"></span>
+        <b>${esc(t.server)} · ${esc(host)}</b>
+        <small>${esc(s.connected ? t.connected : t.disconnected)}${s.app ? ' · ' + esc(s.app) : ''} · ${esc(t.since)} ${esc(desde)}</small>
+      </div>
+      <div class="net-total">
+        <span>${esc(t.allProxy)}</span>
+        <span>↓ ${esc(fmtBytes(s.proxy.bytesIn, lang))}</span>
+        <span>↑ ${esc(fmtBytes(s.proxy.bytesOut, lang))}</span>
+      </div>
+      <div class="net-sub">${esc(t.connections)} (${s.peers.length})</div>
+      ${filas}
+    </section>`
+  }
+
+  _netPeer (p, t, lang) {
+    const quien = p.pubkey || p.token || ''
+    const img = p.pubkey ? `<img src="${esc(avatarDataUri(p.pubkey, { size: 40 }))}" alt="" />` : '<i class="net-anon" aria-hidden="true"></i>'
+    const desglose = (o) => Object.entries(o).filter(([, v]) => v > 0)
+      .map(([k, v]) => `${esc(t.path[k] || k)} ${esc(fmtBytes(v, lang))}`).join(' · ')
+    const dIn = desglose(p.bytesIn); const dOut = desglose(p.bytesOut)
+    return `<div class="net-peer" data-testid="net-peer" data-route="${esc(p.route)}">
+      ${img}
+      <div class="net-who">
+        <span title="${esc(quien)}">${esc(shortKey(quien))}</span>
+        <em class="net-route ${esc(p.route)}">${esc(t.route[p.route] || p.route)}</em>
+      </div>
+      <div class="net-bytes">
+        <span title="${esc(t.received)}${dIn ? ': ' + dIn : ''}">↓ ${esc(fmtBytes(sum(p.bytesIn), lang))}</span>
+        <span title="${esc(t.sent)}${dOut ? ': ' + dOut : ''}">↑ ${esc(fmtBytes(sum(p.bytesOut), lang))}</span>
+        <small>${p.msgsIn + p.msgsOut} ${esc(t.msgs)}</small>
+      </div>
+      ${dIn || dOut ? `<div class="net-split">${dIn ? `↓ ${dIn}` : ''}${dIn && dOut ? '<br>' : ''}${dOut ? `↑ ${dOut}` : ''}</div>` : ''}
+    </div>`
+  }
+
   _resolveLang () {
     const a = (this.getAttribute('lang') || 'auto').toLowerCase()
     if (a === 'es' || a === 'en') return a
@@ -635,6 +794,10 @@ class DotrinoTopbar extends HTMLElement {
       <i class="backup-dot" part="backup-dot" data-testid="backup-dot" aria-hidden="true" hidden></i>
       <div class="prof-menu" part="profile-menu" data-testid="profile-menu" hidden></div>
     </div>` : ''
+
+    const net = has('no-net') ? '' : `<button class="net" part="net" type="button" hidden
+      title="${t.net.button}" aria-label="${t.net.button}" data-testid="net-stats"
+      aria-haspopup="dialog" aria-expanded="false">${NET_SVG}</button>`
 
     const back = has('no-back') ? '' : `<dotrino-back class="back" part="back" lang="${lang}" home="${home}"></dotrino-back>`
 
@@ -762,6 +925,56 @@ class DotrinoTopbar extends HTMLElement {
         .prof-menu .backup-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
         .prof-menu .backup small { display: block; font-size: 11.5px; color: var(--dt-muted, #8ea0b8); line-height: 1.35; }
         .prof-menu .backup .accion { margin-top: 4px; justify-content: center; border: 1px solid var(--dt-line); font-weight: 600; }
+        /* RED: el botón, y el modal con las conexiones. */
+        .net {
+          width: 36px; height: 36px; padding: 0; border-radius: 50%;
+          display: inline-flex; align-items: center; justify-content: center;
+          background: transparent; border: 1px solid var(--dt-line); color: var(--dt-muted); cursor: pointer;
+        }
+        .net[hidden] { display: none; }
+        .net:hover { color: var(--dt-text); border-color: var(--dt-accent); }
+        .net svg { width: 19px; height: 19px; }
+        .net-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; font-family: var(--dt-font); }
+        .net-modal[hidden] { display: none; }
+        .net-back { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+        .net-dialog {
+          position: relative; width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 48px);
+          display: flex; flex-direction: column; overflow: hidden;
+          background: var(--dotrino-topbar-modal-bg, #141028); color: var(--dt-text);
+          border: 1px solid var(--dt-line); border-radius: 14px; box-shadow: 0 20px 50px rgba(0,0,0,.45);
+        }
+        .net-top { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--dt-line); }
+        .net-top h2 { margin: 0; font-size: 16px; }
+        .net-close { background: transparent; border: 0; color: var(--dt-muted); font-size: 16px; cursor: pointer; padding: 4px 8px; border-radius: 8px; }
+        .net-close:hover { color: var(--dt-text); background: rgba(255,255,255,.06); }
+        .net-body { overflow: auto; padding: 10px 14px 14px; font-size: 13px; }
+        .net-tr + .net-tr { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--dt-line); }
+        .net-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+        .net-head small { flex-basis: 100%; color: var(--dt-muted); }
+        .net-state { width: 9px; height: 9px; border-radius: 50%; background: var(--dotrino-topbar-bad, #ef4444); }
+        .net-state.on { background: var(--dotrino-topbar-ok, #22c55e); }
+        .net-total { display: flex; gap: 12px; margin: 8px 0; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--dt-line); }
+        .net-total span:first-child { flex: 1 1 auto; color: var(--dt-muted); }
+        .net-sub { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dt-muted); }
+        .net-peer {
+          display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
+          padding: 8px 4px; border-bottom: 1px solid var(--dt-line);
+        }
+        .net-peer:last-child { border-bottom: 0; }
+        .net-peer img, .net-anon { width: 28px; height: 28px; border-radius: 50%; }
+        .net-anon { display: inline-block; background: var(--dt-line); }
+        .net-who { display: flex; flex-direction: column; min-width: 0; }
+        .net-who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 12px; }
+        .net-route { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--dt-muted); }
+        .net-route.direct { color: var(--dotrino-topbar-ok, #22c55e); }
+        .net-route.turn { color: #60a5fa; }
+        .net-route.webrtc { color: #60a5fa; }
+        .net-route.connecting, .net-route.failed { color: var(--dotrino-topbar-busy, #f59e0b); }
+        .net-bytes { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+        .net-bytes small { color: var(--dt-muted); font-size: 11px; }
+        .net-split { grid-column: 2 / -1; color: var(--dt-muted); font-size: 11px; line-height: 1.4; }
+        .net-empty { color: var(--dt-muted); margin: 6px 0; }
+        .net-note { color: var(--dt-muted); font-size: 11px; margin: 12px 0 0; }
         /* La barra hace flex-wrap: las acciones bajan a otra fila SOLO si no caben
            (overflow real), no siempre. Al envolver, margin-left:auto las mantiene
            a la derecha y la marca se queda arriba-izquierda. */
@@ -829,15 +1042,31 @@ class DotrinoTopbar extends HTMLElement {
           ${support}
           ${profile}
           ${langToggle}
+          ${net}
           <slot name="end"></slot>
         </div>
-      </header>`
+      </header>
+      <div class="net-modal" part="net-modal" hidden>
+        <div class="net-back" data-net-close="1"></div>
+        <div class="net-dialog" role="dialog" aria-modal="true" aria-label="${t.net.title}" data-testid="net-modal">
+          <div class="net-top"><h2>${t.net.title}</h2>
+            <button class="net-close" type="button" data-net-close="1" aria-label="${t.net.close}" data-testid="net-close">✕</button></div>
+          <div class="net-body"></div>
+        </div>
+      </div>`
 
     this.shadowRoot.querySelectorAll('.lang button').forEach((b) =>
       b.addEventListener('click', () => this.setLang(b.dataset.lang)))
     this.shadowRoot.querySelector('.profile')?.addEventListener('click', (e) => this._onProfileClick(e))
     this._wireProfileMenu()
     this._paintBackup()
+    this._paintNetButton()
+    this.shadowRoot.querySelector('.net')?.addEventListener('click', () => this._openNet())
+    this.shadowRoot.querySelectorAll('[data-net-close]').forEach((b) => b.addEventListener('click', () => this._closeNet()))
+    this.shadowRoot.querySelector('.net-modal')?.addEventListener('keydown', (e) => { if (e.key === 'Escape') this._closeNet() })
+    // Un re-render (cambio de idioma, de avatar) rehace el shadow DOM: si el modal estaba
+    // abierto, se vuelve a abrir con el texto nuevo.
+    if (this._netOpen) this._openNet()
   }
 
   _attr (n) { return this.getAttribute(n) }

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>topbar red</title>
+<!-- Se sirve desde la raíz del ecosistema (python3 -m http.server en /mnt/sda1/Dotrino):
+     usa el proxy-client del repo hermano y dos clientes contra el proxio de verdad. -->
+<script type="importmap">{"imports":{
+ "@dotrino/nav":"/dotrino-topbar/node_modules/@dotrino/nav/src/index.js",
+ "@dotrino/support":"/dotrino-topbar/node_modules/@dotrino/support/src/index.js",
+ "@dotrino/identity/avatar":"/dotrino-topbar/node_modules/@dotrino/identity/vault/avatar.js"}}</script>
+</head><body style="background:#111;margin:0;color:#ccc;font-family:system-ui">
+<dotrino-topbar brand="Red" profile no-back lang="es"></dotrino-topbar>
+<pre id="log"></pre>
+<script type="module">
+import '/dotrino-topbar/src/index.js'
+import { WebSocketProxyClient } from '/dotrino-proxy-client/src/index.js'
+const log = (...a) => { document.getElementById('log').textContent += a.join(' ') + '\n' }
+const a = new WebSocketProxyClient({ url: 'wss://proxy.dotrino.com', autoReconnect: false })
+const b = new WebSocketProxyClient({ url: 'wss://proxy.dotrino.com', autoReconnect: false })
+await Promise.all([a.connect(), b.connect()])
+log('a', a.token, 'b', b.token)
+b.on('message', (from, p, meta) => { log('b <-', JSON.stringify(p), meta.via); b.send(from, { eco: p }) })
+a.on('message', (from, p, meta) => log('a <-', JSON.stringify(p), meta.via))
+for (let i = 0; i < 6; i++) { a.send(b.token, { n: i, texto: 'hola ñandú' }); await new Promise(r => setTimeout(r, 1500)) }
+window.listo = true
+</script></body></html>

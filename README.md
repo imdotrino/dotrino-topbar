@@ -84,6 +84,7 @@ import '@dotrino/topbar'
 | `support-contact` | pasa `contact` a `<dotrino-support>` |
 | `support-no-count` | pasa `no-count`: la moneda no registra la apertura en el store compartido. Para apps que **no hablan con ningún dominio de Dotrino** (las que corren en la máquina del usuario) |
 | `no-support` | oculta la moneda de support |
+| `no-net` | oculta el botón de estadísticas de red |
 
 ## El estado del respaldo (`.store`)
 
@@ -107,6 +108,21 @@ document.querySelector('dotrino-topbar').store = store
 
 Existe porque un navegador pasó 12 días sin respaldar nada (la bóveda lo rechazaba) y el
 único aviso estaba dentro de los ajustes de una app: se perdieron datos.
+
+## Estadísticas de red
+
+Si la página tiene un cliente del transporte conectado (`@dotrino/proxy-client` ≥ 0.28.0),
+la barra enseña un botón de **red** (dos flechas). Abre un modal con:
+
+- el proxio al que está conectado, su estado y todo lo que pasó por él (↓ recibido / ↑ enviado);
+- **cada conexión** con otro aparato (identicon si se sabe su llave), por dónde va ahora
+  —**Proxy**, **WebRTC directo**, **WebRTC por TURN**, o *Proxy · negociando WebRTC*— y
+  sus bytes, desglosados por el camino por el que pasaron de verdad.
+
+Se refresca cada segundo mientras está abierto. **La app no cablea nada**: el pilar apunta
+sus clientes en un registro de la página (`Symbol.for('dotrino.transports')`) y el topbar lo
+lee de ahí, sin importar el pilar. Sin cliente, no hay botón. Prueba manual:
+`test/net.html` (servir `/mnt/sda1/Dotrino` y abrir `/dotrino-topbar/test/net.html`).
 
 ## Eventos (bubbles, composed)
 
