@@ -147,6 +147,7 @@ const T = {
       received: 'Recibido', sent: 'Enviado', msgs: 'mensajes', since: 'Desde',
       allProxy: 'Todo lo que pasó por el proxy', connections: 'Conexiones',
       none: 'Todavía no hay conexiones con otros aparatos.',
+      noAnswer: 'Sin respuesta',
       note: 'Bytes del contenido, sin las cabeceras de la red.',
       route: {
         proxy: 'Proxy', connecting: 'Proxy · negociando WebRTC', failed: 'Proxy · WebRTC no salió',
@@ -182,6 +183,7 @@ const T = {
       received: 'Received', sent: 'Sent', msgs: 'messages', since: 'Since',
       allProxy: 'Everything that went through the proxy', connections: 'Connections',
       none: 'No connections with other devices yet.',
+      noAnswer: 'No answer',
       note: 'Content bytes, without network headers.',
       route: {
         proxy: 'Proxy', connecting: 'Proxy · negotiating WebRTC', failed: 'Proxy · WebRTC failed',
@@ -266,6 +268,20 @@ const rPaths = (o) => {
   const parts = ['proxy', 'direct', 'turn', 'webrtc'].filter((k) => (o?.[k] || 0) > 0).map((k) => `${k} ${rBytes(o[k])}`)
   return parts.length ? parts.join(', ') : '0 B'
 }
+/**
+ * Los que contestaron algo (`talking`) y los que solo recibieron (`silent`, resumidos): a un
+ * aparato apagado al que se le mandó un ping no se le llama conexión.
+ */
+export function splitPeers (peers) {
+  const total = (o) => ['proxy', 'direct', 'turn', 'webrtc'].reduce((n, k) => n + (o?.[k] || 0), 0)
+  const talking = []
+  const silent = { count: 0, bytesOut: 0, msgsOut: 0 }
+  for (const p of peers) {
+    if ((p.msgsIn || 0) > 0) talking.push(p)
+    else { silent.count++; silent.bytesOut += total(p.bytesOut); silent.msgsOut += p.msgsOut || 0 }
+  }
+  return { talking, silent }
+}
 /** Las estadísticas como texto: las mismas líneas en la web, Android e iOS (`NetworkStats.report`). */
 export async function netReport (lista) {
   let out = `Dotrino network stats · ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}\n`
@@ -275,14 +291,19 @@ export async function netReport (lista) {
     const hhmm = new Date(s.since).toTimeString().slice(0, 8)
     out += `Proxy ${s.url}${s.app ? ` | app=${s.app}` : ''}${s.node ? ` | node=${s.node}` : ''} | ${s.connected ? 'connected' : 'disconnected'} | since ${hhmm}\n`
     out += `  proxy total: in ${rBytes(s.proxy.bytesIn)} / out ${rBytes(s.proxy.bytesOut)} (frames ${s.proxy.framesIn ?? '?'}/${s.proxy.framesOut ?? '?'})\n`
-    out += `  connections: ${s.peers.length}\n`
-    for (const p of s.peers) {
+    // QUIÉN CONTESTÓ Y QUIÉN NO. Un sondeo (un ping a cada aparato del acta para ver cuál está
+    // encendido) deja una entrada por destinatario aunque nadie responda, y doce líneas se leían
+    // como doce conexiones. Se listan los que hablaron; los demás van en una sola línea.
+    const { talking, silent } = splitPeers(s.peers)
+    out += `  peers: ${talking.length}\n`
+    for (const p of talking) {
       // El aparato por su ID (AB12-CD34, el que enseña la bóveda), nunca un trozo del JWK; el token
       // entero (dueño, 2026-10-07: recortarlo no gana nada).
       const who = p.pubkey ? await keyLabel(p.pubkey).catch(() => '?') : '?'
       const tok = p.token ? ` (token ${p.token})` : ''
       out += `  - ${who}${tok} | route=${p.route} | in: ${rPaths(p.bytesIn)} | out: ${rPaths(p.bytesOut)} | ${(p.msgsIn || 0) + (p.msgsOut || 0)} msgs\n`
     }
+    if (silent.count) out += `  no answer: ${silent.count} (out ${rBytes(silent.bytesOut)}, ${silent.msgsOut} msgs)\n`
   }
   return out
 }
@@ -690,9 +711,11 @@ class DotrinoTopbar extends HTMLElement {
     try { host = new URL(s.url).host } catch (_) {}
     if (s.error) return `<section class="net-tr"><div class="net-head"><b>${esc(host)}</b></div><p class="net-empty">${esc(s.error)}</p></section>`
     const desde = new Date(s.since).toLocaleTimeString(lang === 'en' ? 'en-US' : 'es-EC', { hour: '2-digit', minute: '2-digit' })
-    const filas = s.peers.length
-      ? s.peers.map((p) => this._netPeer(p, t, lang)).join('')
-      : `<p class="net-empty">${esc(t.none)}</p>`
+    const { talking, silent } = splitPeers(s.peers)
+    const filas = (talking.length
+      ? talking.map((p) => this._netPeer(p, t, lang)).join('')
+      : `<p class="net-empty">${esc(t.none)}</p>`) +
+      (silent.count ? `<p class="net-empty" data-testid="net-silent">${esc(t.noAnswer)}: ${silent.count} · ↑ ${esc(fmtBytes(silent.bytesOut, lang))}</p>` : '')
     return `<section class="net-tr" data-testid="net-transport">
       <div class="net-head">
         <span class="net-state ${s.connected ? 'on' : 'off'}" aria-hidden="true"></span>
@@ -704,7 +727,7 @@ class DotrinoTopbar extends HTMLElement {
         <span>↓ ${esc(fmtBytes(s.proxy.bytesIn, lang))}</span>
         <span>↑ ${esc(fmtBytes(s.proxy.bytesOut, lang))}</span>
       </div>
-      <div class="net-sub">${esc(t.connections)} (${s.peers.length})</div>
+      <div class="net-sub">${esc(t.connections)} (${talking.length})</div>
       ${filas}
     </section>`
   }
