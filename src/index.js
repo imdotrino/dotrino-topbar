@@ -102,6 +102,7 @@ import '@dotrino/support'
 // El topbar YA NO abre un modal de perfil (se quitó: duplicaba profile.dotrino.com). Una
 // app que quiera mostrar la tarjeta de OTRA persona importa `@dotrino/profile` ella misma.
 import { avatarDataUri } from '@dotrino/identity/avatar' // identicon del perfil activo (subpath barato: no arrastra core.js)
+import { keyLabel } from '@dotrino/identity/keyid' // el ID de un aparato (AB12-CD34) para el informe de red
 
 /** Tu perfil vive en una sola página del ecosistema; el topbar solo te lleva. */
 const PROFILE_URL = 'https://profile.dotrino.com/'
@@ -266,7 +267,7 @@ const rPaths = (o) => {
   return parts.length ? parts.join(', ') : '0 B'
 }
 /** Las estadísticas como texto: las mismas líneas en la web, Android e iOS (`NetworkStats.report`). */
-export function netReport (lista) {
+export async function netReport (lista) {
   let out = `Dotrino network stats · ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}\n`
   if (!lista.length) out += '(no transports)\n'
   for (const s of lista) {
@@ -276,8 +277,10 @@ export function netReport (lista) {
     out += `  proxy total: in ${rBytes(s.proxy.bytesIn)} / out ${rBytes(s.proxy.bytesOut)} (frames ${s.proxy.framesIn ?? '?'}/${s.proxy.framesOut ?? '?'})\n`
     out += `  connections: ${s.peers.length}\n`
     for (const p of s.peers) {
-      const who = p.pubkey ? shortKey(p.pubkey) : '?'
-      const tok = p.token ? ` (token ${p.token.length > 10 ? p.token.slice(0, 8) + '…' : p.token})` : ''
+      // El aparato por su ID (AB12-CD34, el que enseña la bóveda), nunca un trozo del JWK; el token
+      // entero (dueño, 2026-10-07: recortarlo no gana nada).
+      const who = p.pubkey ? await keyLabel(p.pubkey).catch(() => '?') : '?'
+      const tok = p.token ? ` (token ${p.token})` : ''
       out += `  - ${who}${tok} | route=${p.route} | in: ${rPaths(p.bytesIn)} | out: ${rPaths(p.bytesOut)} | ${(p.msgsIn || 0) + (p.msgsOut || 0)} msgs\n`
     }
   }
@@ -1100,7 +1103,7 @@ class DotrinoTopbar extends HTMLElement {
     // líneas que copian Android e iOS (`NetworkStats.report` de dotrino-native).
     this.shadowRoot.querySelector('.net-copy')?.addEventListener('click', async (e) => {
       const b = e.currentTarget
-      try { await navigator.clipboard.writeText(netReport(this._netLast || [])) } catch (_) { return }
+      try { await navigator.clipboard.writeText(await netReport(this._netLast || [])) } catch (_) { return }
       const t = (T[this._lang] || T.es).net
       b.textContent = t.copied
       setTimeout(() => { b.textContent = t.copy }, 1500)
