@@ -147,7 +147,7 @@ const T = {
       received: 'Recibido', sent: 'Enviado', msgs: 'mensajes', since: 'Desde',
       allProxy: 'Todo lo que pasó por el proxy', connections: 'Conexiones',
       none: 'Todavía no hay conexiones con otros aparatos.',
-      noAnswer: 'Sin respuesta',
+      noAnswer: 'Sin respuesta', unknownSenders: 'Remitentes sin identificar',
       note: 'Bytes del contenido, sin las cabeceras de la red.',
       route: {
         proxy: 'Proxy', connecting: 'Proxy · negociando WebRTC', failed: 'Proxy · WebRTC no salió',
@@ -183,7 +183,7 @@ const T = {
       received: 'Received', sent: 'Sent', msgs: 'messages', since: 'Since',
       allProxy: 'Everything that went through the proxy', connections: 'Connections',
       none: 'No connections with other devices yet.',
-      noAnswer: 'No answer',
+      noAnswer: 'No answer', unknownSenders: 'Unidentified senders',
       note: 'Content bytes, without network headers.',
       route: {
         proxy: 'Proxy', connecting: 'Proxy · negotiating WebRTC', failed: 'Proxy · WebRTC failed',
@@ -276,11 +276,13 @@ export function splitPeers (peers) {
   const total = (o) => ['proxy', 'direct', 'turn', 'webrtc'].reduce((n, k) => n + (o?.[k] || 0), 0)
   const talking = []
   const silent = { count: 0, bytesOut: 0, msgsOut: 0 }
+  // `unknown`: alguien que nos escribió, a quien nunca contestamos y de quien no sabemos la
+  // llave (otro aparato sondeando qué máquinas están encendidas). Tampoco es una conexión.
+  const unknown = { count: 0, bytesIn: 0, msgsIn: 0 }
   for (const p of peers) {
-    if ((p.msgsIn || 0) > 0) talking.push(p)
-    else { silent.count++; silent.bytesOut += total(p.bytesOut); silent.msgsOut += p.msgsOut || 0 }
+    if (!((p.msgsIn || 0) > 0)) { silent.count++; silent.bytesOut += total(p.bytesOut); silent.msgsOut += p.msgsOut || 0 } else if (!p.pubkey && !((p.msgsOut || 0) > 0)) { unknown.count++; unknown.bytesIn += total(p.bytesIn); unknown.msgsIn += p.msgsIn || 0 } else talking.push(p)
   }
-  return { talking, silent }
+  return { talking, silent, unknown }
 }
 /** Las estadísticas como texto: las mismas líneas en la web, Android e iOS (`NetworkStats.report`). */
 export async function netReport (lista) {
@@ -294,7 +296,7 @@ export async function netReport (lista) {
     // QUIÉN CONTESTÓ Y QUIÉN NO. Un sondeo (un ping a cada aparato del acta para ver cuál está
     // encendido) deja una entrada por destinatario aunque nadie responda, y doce líneas se leían
     // como doce conexiones. Se listan los que hablaron; los demás van en una sola línea.
-    const { talking, silent } = splitPeers(s.peers)
+    const { talking, silent, unknown } = splitPeers(s.peers)
     out += `  peers: ${talking.length}\n`
     for (const p of talking) {
       // El aparato por su ID (AB12-CD34, el que enseña la bóveda), nunca un trozo del JWK; el token
@@ -304,6 +306,7 @@ export async function netReport (lista) {
       out += `  - ${who}${tok} | route=${p.route} | in: ${rPaths(p.bytesIn)} | out: ${rPaths(p.bytesOut)} | ${(p.msgsIn || 0) + (p.msgsOut || 0)} msgs\n`
     }
     if (silent.count) out += `  no answer: ${silent.count} (out ${rBytes(silent.bytesOut)}, ${silent.msgsOut} msgs)\n`
+    if (unknown.count) out += `  unknown senders: ${unknown.count} (in ${rBytes(unknown.bytesIn)}, ${unknown.msgsIn} msgs)\n`
   }
   return out
 }
@@ -711,11 +714,12 @@ class DotrinoTopbar extends HTMLElement {
     try { host = new URL(s.url).host } catch (_) {}
     if (s.error) return `<section class="net-tr"><div class="net-head"><b>${esc(host)}</b></div><p class="net-empty">${esc(s.error)}</p></section>`
     const desde = new Date(s.since).toLocaleTimeString(lang === 'en' ? 'en-US' : 'es-EC', { hour: '2-digit', minute: '2-digit' })
-    const { talking, silent } = splitPeers(s.peers)
+    const { talking, silent, unknown } = splitPeers(s.peers)
     const filas = (talking.length
       ? talking.map((p) => this._netPeer(p, t, lang)).join('')
       : `<p class="net-empty">${esc(t.none)}</p>`) +
-      (silent.count ? `<p class="net-empty" data-testid="net-silent">${esc(t.noAnswer)}: ${silent.count} · ↑ ${esc(fmtBytes(silent.bytesOut, lang))}</p>` : '')
+      (silent.count ? `<p class="net-empty" data-testid="net-silent">${esc(t.noAnswer)}: ${silent.count} · ↑ ${esc(fmtBytes(silent.bytesOut, lang))}</p>` : '') +
+      (unknown.count ? `<p class="net-empty" data-testid="net-unknown">${esc(t.unknownSenders)}: ${unknown.count} · ↓ ${esc(fmtBytes(unknown.bytesIn, lang))}</p>` : '')
     return `<section class="net-tr" data-testid="net-transport">
       <div class="net-head">
         <span class="net-state ${s.connected ? 'on' : 'off'}" aria-hidden="true"></span>
