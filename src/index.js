@@ -141,7 +141,7 @@ const T = {
     adoptProfile: 'Adoptar un perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre',
     login: 'Iniciar sesión', logout: 'Salir', onlyHere: 'solo en esta pestaña',
     net: {
-      button: 'Estadísticas de red', title: 'Estadísticas de red', close: 'Cerrar',
+      button: 'Estadísticas de red', title: 'Estadísticas de red', close: 'Cerrar', copy: 'Copiar', copied: 'Copiado',
       connected: 'Conectado', disconnected: 'Desconectado', server: 'Proxy',
       received: 'Recibido', sent: 'Enviado', msgs: 'mensajes', since: 'Desde',
       allProxy: 'Todo lo que pasó por el proxy', connections: 'Conexiones',
@@ -176,7 +176,7 @@ const T = {
     adoptProfile: 'Adopt a profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile',
     login: 'Sign in', logout: 'Sign out', onlyHere: 'this tab only',
     net: {
-      button: 'Network stats', title: 'Network stats', close: 'Close',
+      button: 'Network stats', title: 'Network stats', close: 'Close', copy: 'Copy', copied: 'Copied',
       connected: 'Connected', disconnected: 'Disconnected', server: 'Proxy',
       received: 'Received', sent: 'Sent', msgs: 'messages', since: 'Since',
       allProxy: 'Everything that went through the proxy', connections: 'Connections',
@@ -258,6 +258,31 @@ function fmtBytes (n, lang) {
 }
 
 const sum = (o) => (o ? Object.values(o).reduce((a, b) => a + (b || 0), 0) : 0)
+
+/** Bytes para el informe de texto: `B`, `KB` con un decimal, `MB` con dos (igual que en dotrino-native). */
+const rBytes = (n) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`)
+const rPaths = (o) => {
+  const parts = ['proxy', 'direct', 'turn', 'webrtc'].filter((k) => (o?.[k] || 0) > 0).map((k) => `${k} ${rBytes(o[k])}`)
+  return parts.length ? parts.join(', ') : '0 B'
+}
+/** Las estadísticas como texto: las mismas líneas en la web, Android e iOS (`NetworkStats.report`). */
+export function netReport (lista) {
+  let out = `Dotrino network stats · ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}\n`
+  if (!lista.length) out += '(no transports)\n'
+  for (const s of lista) {
+    if (s.error) { out += `Proxy ${s.url} | error: ${s.error}\n`; continue }
+    const hhmm = new Date(s.since).toTimeString().slice(0, 8)
+    out += `Proxy ${s.url}${s.app ? ` | app=${s.app}` : ''}${s.node ? ` | node=${s.node}` : ''} | ${s.connected ? 'connected' : 'disconnected'} | since ${hhmm}\n`
+    out += `  proxy total: in ${rBytes(s.proxy.bytesIn)} / out ${rBytes(s.proxy.bytesOut)} (frames ${s.proxy.framesIn ?? '?'}/${s.proxy.framesOut ?? '?'})\n`
+    out += `  connections: ${s.peers.length}\n`
+    for (const p of s.peers) {
+      const who = p.pubkey ? shortKey(p.pubkey) : '?'
+      const tok = p.token ? ` (token ${p.token.length > 10 ? p.token.slice(0, 8) + '…' : p.token})` : ''
+      out += `  - ${who}${tok} | route=${p.route} | in: ${rPaths(p.bytesIn)} | out: ${rPaths(p.bytesOut)} | ${(p.msgsIn || 0) + (p.msgsOut || 0)} msgs\n`
+    }
+  }
+  return out
+}
 const shortKey = (k) => { const v = String(k || ''); return v.length > 14 ? `${v.slice(0, 6)}…${v.slice(-6)}` : v }
 
 const NET_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -652,6 +677,7 @@ class DotrinoTopbar extends HTMLElement {
       try { return await c.stats() } catch (e) { return { error: e?.message || String(e), url: c.url } }
     }))
     if (!this._netOpen) return
+    this._netLast = lista
     const html = lista.map((s) => this._netTransport(s, t, lang)).join('') || `<p class="net-empty">${esc(t.none)}</p>`
     body.innerHTML = html + `<p class="net-note">${esc(t.note)}</p>`
   }
@@ -948,6 +974,8 @@ class DotrinoTopbar extends HTMLElement {
         }
         .net-top { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--dt-line); }
         .net-top h2 { margin: 0; font-size: 16px; }
+        .net-copy { background: transparent; border: 1px solid var(--dt-muted); color: var(--dt-text); font: inherit; font-size: 12px; cursor: pointer; padding: 3px 10px; border-radius: 8px; margin-left: auto; margin-right: 6px; }
+        .net-copy:hover { background: rgba(255,255,255,.06); }
         .net-close { background: transparent; border: 0; color: var(--dt-muted); font-size: 16px; cursor: pointer; padding: 4px 8px; border-radius: 8px; }
         .net-close:hover { color: var(--dt-text); background: rgba(255,255,255,.06); }
         .net-body { overflow: auto; padding: 10px 14px 14px; font-size: 13px; }
@@ -1054,6 +1082,7 @@ class DotrinoTopbar extends HTMLElement {
         <div class="net-back" data-net-close="1"></div>
         <div class="net-dialog" role="dialog" aria-modal="true" aria-label="${t.net.title}" data-testid="net-modal">
           <div class="net-top"><h2>${t.net.title}</h2>
+            <button class="net-copy" type="button" data-testid="net-copy">${t.net.copy}</button>
             <button class="net-close" type="button" data-net-close="1" aria-label="${t.net.close}" data-testid="net-close">✕</button></div>
           <div class="net-body"></div>
         </div>
@@ -1067,6 +1096,15 @@ class DotrinoTopbar extends HTMLElement {
     this._paintNetButton()
     this.shadowRoot.querySelector('.net')?.addEventListener('click', () => this._openNet())
     this.shadowRoot.querySelectorAll('[data-net-close]').forEach((b) => b.addEventListener('click', () => this._closeNet()))
+    // «Copiar»: las cifras como texto, para pegarlas en un chat (dueño, 2026-10-07). Las mismas
+    // líneas que copian Android e iOS (`NetworkStats.report` de dotrino-native).
+    this.shadowRoot.querySelector('.net-copy')?.addEventListener('click', async (e) => {
+      const b = e.currentTarget
+      try { await navigator.clipboard.writeText(netReport(this._netLast || [])) } catch (_) { return }
+      const t = (T[this._lang] || T.es).net
+      b.textContent = t.copied
+      setTimeout(() => { b.textContent = t.copy }, 1500)
+    })
     this.shadowRoot.querySelector('.net-modal')?.addEventListener('keydown', (e) => { if (e.key === 'Escape') this._closeNet() })
     // Un re-render (cambio de idioma, de avatar) rehace el shadow DOM: si el modal estaba
     // abierto, se vuelve a abrir con el texto nuevo.
