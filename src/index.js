@@ -31,6 +31,9 @@
  *   home             fallback de "volver" si no hay historial (default dotrino.com)
  *   no-back          oculta el chevron de volver
  *   no-lang          oculta el toggle de idioma (apps de un solo idioma)
+ *   theme            muestra el sol/luna: elige claro u oscuro con @dotrino/theme (la app
+ *                    tiene que importar `@dotrino/theme/theme.css`). Al conectarse aplica
+ *                    lo que el usuario eligió antes.
  *   profile          muestra el botón de perfil (§6.1)
  *   profile-href     a dónde lleva «Abrir mi perfil» (por defecto profile.dotrino.com).
  *                    Para apps cuyo perfil NO vive ahí — p. ej. una extensión, con su
@@ -103,6 +106,10 @@ import '@dotrino/support'
 // app que quiera mostrar la tarjeta de OTRA persona importa `@dotrino/profile` ella misma.
 import { avatarDataUri } from '@dotrino/identity/avatar' // identicon del perfil activo (subpath barato: no arrastra core.js)
 import { keyLabel } from '@dotrino/identity/keyid' // el ID de un aparato (AB12-CD34) para el informe de red
+// El sol/luna (atributo `theme`): elige claro u oscuro con la pieza del tema, nunca con un
+// data-theme propio. Va en `dependencies` y no en `peerDependencies` porque no guarda estado
+// en el módulo (lo suyo es `data-theme` y localStorage): dos copias hacen lo mismo.
+import { setTheme, applyTheme, resolvedTheme } from '@dotrino/theme'
 
 /** Tu perfil vive en una sola página del ecosistema; el topbar solo te lleva. */
 const PROFILE_URL = 'https://profile.dotrino.com/'
@@ -141,6 +148,7 @@ const T = {
     profile: 'Mi perfil', back: 'Volver', profiles: 'Tus perfiles', newProfile: 'Crear perfil',
     adoptProfile: 'Adoptar un perfil', openProfile: 'Abrir mi perfil', unnamedProfile: 'Perfil sin nombre',
     login: 'Iniciar sesión', logout: 'Salir', onlyHere: 'solo en esta pestaña',
+    theme: { toLight: 'Tema claro', toDark: 'Tema oscuro' },
     net: {
       button: 'Estadísticas de red', title: 'Estadísticas de red', close: 'Cerrar', copy: 'Copiar', copied: 'Copiado',
       connected: 'Conectado', disconnected: 'Desconectado', server: 'Proxy',
@@ -177,6 +185,7 @@ const T = {
     profile: 'My profile', back: 'Back', profiles: 'Your profiles', newProfile: 'Create profile',
     adoptProfile: 'Adopt a profile', openProfile: 'Open my profile', unnamedProfile: 'Unnamed profile',
     login: 'Sign in', logout: 'Sign out', onlyHere: 'this tab only',
+    theme: { toLight: 'Light theme', toDark: 'Dark theme' },
     net: {
       button: 'Network stats', title: 'Network stats', close: 'Close', copy: 'Copy', copied: 'Copied',
       connected: 'Connected', disconnected: 'Disconnected', server: 'Proxy',
@@ -316,6 +325,13 @@ const NET_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <path d="M7 4v14" /><path d="M3.5 14.5 7 18l3.5-3.5" /><path d="M17 20V6" /><path d="M13.5 9.5 17 6l3.5 3.5" /></svg>`
 
+/* Sol y luna: el icono enseña A DÓNDE lleva el botón (en oscuro, el sol). */
+const SUN_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg>`
+const MOON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>`
 const PROFILE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" /></svg>`
@@ -339,6 +355,15 @@ class DotrinoTopbar extends HTMLElement {
     if (!this.hasAttribute('no-back') && !getBackNav()) {
       try { createBackNav({ home: this.getAttribute('home') || 'https://dotrino.com' }) } catch (_) {}
     }
+    // Lo que el usuario eligió de tema se aplica ANTES de pintar, y el icono sigue al
+    // sistema cuando no eligió nada.
+    if (this.hasAttribute('theme')) {
+      try { applyTheme() } catch (_) {}
+      if (!this._onScheme && typeof matchMedia === 'function') {
+        this._onScheme = () => this._paintThemeButton()
+        matchMedia('(prefers-color-scheme: dark)').addEventListener('change', this._onScheme)
+      }
+    }
     this.render()
     if (this._identity) this._refreshButtonAvatar()
     if (!this._onTransports && typeof globalThis.addEventListener === 'function') {
@@ -347,7 +372,22 @@ class DotrinoTopbar extends HTMLElement {
     }
   }
 
+  /** El sol en oscuro, la luna en claro: el icono dice a dónde lleva. */
+  _paintThemeButton () {
+    const b = this.shadowRoot?.querySelector('.theme')
+    if (!b) return
+    const dark = resolvedTheme() === 'dark'
+    const t = T[this._lang] || T.es
+    b.innerHTML = dark ? SUN_SVG : MOON_SVG
+    b.title = dark ? t.theme.toLight : t.theme.toDark
+    b.setAttribute('aria-label', b.title)
+  }
+
   disconnectedCallback () {
+    if (this._onScheme && typeof matchMedia === 'function') {
+      matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._onScheme)
+      this._onScheme = null
+    }
     this._cerrarMenu()
     this._closeNet()
     if (this._onTransports) { globalThis.removeEventListener('dotrino-transports', this._onTransports); this._onTransports = null }
@@ -857,6 +897,8 @@ class DotrinoTopbar extends HTMLElement {
 
     const back = has('no-back') ? '' : `<dotrino-back class="back" part="back" lang="${lang}" home="${home}"></dotrino-back>`
 
+    const theme = has('theme') ? `<button class="theme" part="theme" type="button" data-testid="theme-toggle"></button>` : ''
+
     const langToggle = has('no-lang') ? '' : `<div class="lang" part="lang" role="group" aria-label="es / en">
       <button type="button" part="lang-btn" class="${lang === 'es' ? 'on' : ''}" data-lang="es">ES</button>
       <button type="button" part="lang-btn" class="${lang === 'en' ? 'on' : ''}" data-lang="en">EN</button></div>`
@@ -990,6 +1032,13 @@ class DotrinoTopbar extends HTMLElement {
         .net[hidden] { display: none; }
         .net:hover { color: var(--dt-text); border-color: var(--dt-accent); }
         .net svg { width: 19px; height: 19px; }
+        .theme {
+          width: 36px; height: 36px; padding: 0; border-radius: 50%;
+          display: inline-flex; align-items: center; justify-content: center;
+          background: transparent; border: 1px solid var(--dt-line); color: var(--dt-muted); cursor: pointer;
+        }
+        .theme:hover { color: var(--dt-text); border-color: var(--dt-accent); }
+        .theme svg { width: 19px; height: 19px; }
         .net-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; font-family: var(--dt-font); }
         .net-modal[hidden] { display: none; }
         .net-back { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
@@ -1104,6 +1153,7 @@ class DotrinoTopbar extends HTMLElement {
           ${support}
           ${profile}
           ${langToggle}
+          ${theme}
           ${net}
           <slot name="end"></slot>
         </div>
@@ -1120,6 +1170,14 @@ class DotrinoTopbar extends HTMLElement {
 
     this.shadowRoot.querySelectorAll('.lang button').forEach((b) =>
       b.addEventListener('click', () => this.setLang(b.dataset.lang)))
+    this._paintThemeButton()
+    this.shadowRoot.querySelector('.theme')?.addEventListener('click', () => {
+      // Elige lo contrario de lo que SE VE (no de lo guardado: con `auto` lo que se ve es
+      // lo del sistema). Vuelve a seguir al sistema borrando la elección en el perfil.
+      setTheme(resolvedTheme() === 'dark' ? 'light' : 'dark')
+      this._paintThemeButton()
+      this.dispatchEvent(new CustomEvent('dotrino-theme', { detail: { theme: resolvedTheme() }, bubbles: true, composed: true }))
+    })
     this.shadowRoot.querySelector('.profile')?.addEventListener('click', (e) => this._onProfileClick(e))
     this._wireProfileMenu()
     this._paintBackup()

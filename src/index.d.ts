@@ -4,7 +4,9 @@
  * Slots: `brand` (marca a medida), default (acciones al medio), `end`
  * (controles extra en el cluster derecho).
  * Parts: bar, back, brand, brand-icon, brand-name, mid, actions, lang,
- * lang-btn, profile, coin.
+ * lang-btn, theme, profile, coin.
+ * Atributo `theme`: sol/luna que elige claro u oscuro con @dotrino/theme (la app importa
+ * `@dotrino/theme/theme.css`); emite `dotrino-theme`.
  * Vars de tema: --dotrino-topbar-{bg,border,text,muted,accent,pad,gap,font}.
  *
  * Perfil (§6.1): el botón despliega el MENÚ de perfiles —los de este aparato, «Abrir mi
@@ -40,6 +42,7 @@ declare global {
   }
   interface HTMLElementEventMap {
     'dotrino-lang': CustomEvent<{ lang: 'es' | 'en' }>
+    'dotrino-theme': CustomEvent<{ theme: 'light' | 'dark' }>
     'dotrino-profile': CustomEvent<void>
     'dotrino-profile-name': CustomEvent<{ pubkey: string; name: string }>
     'dotrino-profile-close': CustomEvent<void>

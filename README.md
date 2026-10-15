@@ -70,6 +70,7 @@ import '@dotrino/topbar'
 | `home` | fallback de "volver" (default `https://dotrino.com`) |
 | `no-back` | oculta el chevron de volver |
 | `no-lang` | oculta el toggle de idioma |
+| `theme` | muestra el **sol/luna** que elige claro u oscuro con [`@dotrino/theme`](https://www.npmjs.com/package/@dotrino/theme) (la app importa `@dotrino/theme/theme.css`). Sin elección, sigue al sistema; emite `dotrino-theme` |
 | `profile` | muestra el botón de perfil (§6.1). Funciona sin `.identity`: el menú sale con los enlaces y sin la lista de perfiles |
 | `profile-href` | a dónde lleva «Abrir mi perfil» (default `https://profile.dotrino.com/`) |
 | `profile-new-href` | ídem para «Crear perfil» |
