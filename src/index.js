@@ -294,10 +294,10 @@ export function splitPeers (peers) {
   return { talking, silent, unknown }
 }
 /** Las estadísticas como texto: las mismas líneas en la web, Android e iOS (`NetworkStats.report`). */
-export async function netReport (lista) {
+export async function netReport (list) {
   let out = `Dotrino network stats · ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}\n`
-  if (!lista.length) out += '(no transports)\n'
-  for (const s of lista) {
+  if (!list.length) out += '(no transports)\n'
+  for (const s of list) {
     if (s.error) { out += `Proxy ${s.url} | error: ${s.error}\n`; continue }
     const hhmm = new Date(s.since).toTimeString().slice(0, 8)
     out += `Proxy ${s.url}${s.app ? ` | app=${s.app}` : ''}${s.node ? ` | node=${s.node}` : ''} | ${s.connected ? 'connected' : 'disconnected'} | since ${hhmm}\n`
@@ -388,10 +388,10 @@ class DotrinoTopbar extends HTMLElement {
       matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._onScheme)
       this._onScheme = null
     }
-    this._cerrarMenu()
+    this._closeMenu()
     this._closeNet()
     if (this._onTransports) { globalThis.removeEventListener('dotrino-transports', this._onTransports); this._onTransports = null }
-    if (this._fueraListener) { document.removeEventListener('click', this._fueraListener); this._fueraListener = null }
+    if (this._outsideListener) { document.removeEventListener('click', this._outsideListener); this._outsideListener = null }
   }
 
   attributeChangedCallback (name, oldV, newV) {
@@ -480,29 +480,29 @@ class DotrinoTopbar extends HTMLElement {
     const level = backupLevel(s)
     if (!level) return ''
     const b = t.backup
-    const detalles = []
-    if (level === 'local') detalles.push(b.localDetail)
+    const details = []
+    if (level === 'local') details.push(b.localDetail)
     else if (isRejected(s)) {
       // El motivo, si la bóveda lo dio (identity ≥ 0.107.2 + store ≥ 0.12.1): «caducó» se
       // arregla enlazando, y decirlo ahorra adivinar.
-      if (s.error?.reason === 'expired') detalles.push(b.expiredDetail)
-      detalles.push(b.rejectedDetail)
+      if (s.error?.reason === 'expired') details.push(b.expiredDetail)
+      details.push(b.rejectedDetail)
     }
-    if (s.pending > 0) detalles.push(b.pending(s.pending))
+    if (s.pending > 0) details.push(b.pending(s.pending))
     // Solo si la hubo EN ESTA SESIÓN: el almacén no recuerda la fecha entre recargas, y
     // «nunca» sería mentira en un aparato que sí respaldó ayer.
     if (level !== 'local' && s.lastSyncAt) {
-      detalles.push(b.last + new Date(s.lastSyncAt).toLocaleString(this._lang === 'en' ? 'en-US' : 'es-EC', { dateStyle: 'short', timeStyle: 'short' }))
+      details.push(b.last + new Date(s.lastSyncAt).toLocaleString(this._lang === 'en' ? 'en-US' : 'es-EC', { dateStyle: 'short', timeStyle: 'short' }))
     }
     const relink = level === 'local' || isRejected(s) || (s.state === 'off' && s.reason === 'revoked')
-    const accion = relink
-      ? `<a class="item accion"${this._profileTarget} href="${esc(this._profileVaultHref)}" data-testid="backup-relink">${esc(level === 'local' ? b.link : b.relink)}</a>`
+    const action = relink
+      ? `<a class="item action"${this._profileTarget} href="${esc(this._profileVaultHref)}" data-testid="backup-relink">${esc(level === 'local' ? b.link : b.relink)}</a>`
       : level === 'bad'
-        ? `<button class="item accion" type="button" data-backup-retry="1" data-testid="backup-retry">${esc(b.retry)}</button>`
+        ? `<button class="item action" type="button" data-backup-retry="1" data-testid="backup-retry">${esc(b.retry)}</button>`
         : ''
     return `<div class="backup ${level}" data-testid="backup-status" data-backup="${level}">` +
       `<div class="backup-head"><i class="backup-dot ${level}" aria-hidden="true"></i><span>${esc(this._backupTitle(s, t))}</span></div>` +
-      detalles.map((d) => `<small>${esc(d)}</small>`).join('') + accion + '</div>'
+      details.map((d) => `<small>${esc(d)}</small>`).join('') + action + '</div>'
   }
 
   _wireBackupRow () {
@@ -595,14 +595,14 @@ class DotrinoTopbar extends HTMLElement {
     // El menú se abre al PULSAR, no al pasar por encima: un menú que aparece solo porque
     // el ratón pasa cerca es incómodo, y además así el gesto es el mismo en el escritorio
     // y en el móvil, donde no existe el hover.
-    if (!this._fueraListener) {
-      this._fueraListener = (e) => { if (!this.contains(e.target)) this._cerrarMenu() }
-      document.addEventListener('click', this._fueraListener)
+    if (!this._outsideListener) {
+      this._outsideListener = (e) => { if (!this.contains(e.target)) this._closeMenu() }
+      document.addEventListener('click', this._outsideListener)
     }
-    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this._cerrarMenu(); btn.focus() } })
+    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this._closeMenu(); btn.focus() } })
   }
 
-  async _abrirMenu () {
+  async _openMenu () {
     const menu = this.shadowRoot.querySelector('.prof-menu')
     const btn = this.shadowRoot.querySelector('.profile')
     if (!menu || !btn) return
@@ -613,18 +613,18 @@ class DotrinoTopbar extends HTMLElement {
   }
 
   /** Los enlaces del menú: abrir, crear, adoptar, y entrar o salir. */
-  _profileLinks (t, dentro, puedeSalir) {
+  _profileLinks (t, loggedIn, canLogout) {
     return `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">${esc(t.openProfile)}</a>` +
       `<a class="item"${this._profileTarget} href="${esc(this._profileNewHref)}${this._profileNewHref === CREATE_URL ? '?return=' + encodeURIComponent(location.href) : ''}">＋ ${esc(t.newProfile)}</a>` +
       `<a class="item"${this._profileTarget} href="${esc(this._profileAdoptHref)}${this._profileAdoptHref === ADOPT_URL ? '?return=' + encodeURIComponent(location.href) : ''}">↧ ${esc(t.adoptProfile)}</a>` +
-      (dentro
-        ? (puedeSalir
+      (loggedIn
+        ? (canLogout
             ? `<button class="item" type="button" data-logout="1">⇥ ${esc(t.logout)}</button>`
             : `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">⇥ ${esc(t.logout)}</a>`)
         : `<a class="item"${this._profileTarget} href="${esc(this._profileLoginHref)}${this._profileLoginHref === LOGIN_URL ? '?return=' + encodeURIComponent(location.href) : ''}">⇤ ${esc(t.login)}</a>`)
   }
 
-  _cerrarMenu () {
+  _closeMenu () {
     const menu = this.shadowRoot?.querySelector('.prof-menu')
     const btn = this.shadowRoot?.querySelector('.profile')
     if (menu) menu.hidden = true
@@ -642,18 +642,18 @@ class DotrinoTopbar extends HTMLElement {
     // que cualquier app, y el botón no puede quedarse mudo al pulsarlo.
     if (!id || typeof id.listProfiles !== 'function') { menu.innerHTML = this._backupRow(t) + this._profileLinks(t, false); this._wireBackupRow(); return }
     try {
-      const lista = await id.listProfiles()
-      if (!Array.isArray(lista) || !lista.length) return
-      const filas = lista.map((p) => {
+      const list = await id.listProfiles()
+      if (!Array.isArray(list) || !list.length) return
+      const rows = list.map((p) => {
         const img = p.avatar || avatarDataUri(p.pubkey || p.id || '', { size: 44 })
-        const nombre = p.name || t.unnamedProfile
+        const label = p.name || t.unnamedProfile
         // UNA CUENTA A LA QUE SE ENTRÓ CON CONTRASEÑA se dice, y si es de paso se dice
         // además que vive solo en esta pestaña: es lo que explica que no esté en las demás
         // y que al cerrar no quede nada.
-        const nota = p.login ? `<small class="nota">${esc(p.login.address)}${p.login.volatile ? ' · ' + esc(t.onlyHere) : ''}</small>` : ''
+        const note = p.login ? `<small class="note">${esc(p.login.address)}${p.login.volatile ? ' · ' + esc(t.onlyHere) : ''}</small>` : ''
         return p.current
-          ? `<div class="item" aria-current="true"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}${nota}</span><span class="marca" aria-hidden="true">✓</span></div>`
-          : `<button class="item" type="button" data-switch="${esc(p.id)}"><img src="${esc(img)}" alt="" /><span>${esc(nombre)}${nota}</span></button>`
+          ? `<div class="item" aria-current="true"><img src="${esc(img)}" alt="" /><span>${esc(label)}${note}</span><span class="mark" aria-hidden="true">✓</span></div>`
+          : `<button class="item" type="button" data-switch="${esc(p.id)}"><img src="${esc(img)}" alt="" /><span>${esc(label)}${note}</span></button>`
       }).join('')
       // SALIR solo aparece cuando hay de dónde salir: la cuenta activa se abrió con una
       // contraseña. Para las demás no existe — de una cuenta tuya no se «sale».
@@ -662,10 +662,10 @@ class DotrinoTopbar extends HTMLElement {
       // `logoutLogin`: el botón no haría NADA y el usuario se quedaría dentro sin saber por
       // qué. En ese caso se enseña igual, pero llevando a la página del perfil, que sí sabe
       // cerrarlo. Un botón que calla es peor que uno que te manda a otro sitio.
-      const dentro = lista.find((p) => p.current && p.login)
-      const puedeSalir = typeof id.logoutLogin === 'function'
-      menu.innerHTML = this._backupRow(t) + `<div class="head">${esc(t.profiles)}</div>${filas}<div class="sep"></div>` +
-        this._profileLinks(t, dentro, puedeSalir)
+      const loggedIn = list.find((p) => p.current && p.login)
+      const canLogout = typeof id.logoutLogin === 'function'
+      menu.innerHTML = this._backupRow(t) + `<div class="head">${esc(t.profiles)}</div>${rows}<div class="sep"></div>` +
+        this._profileLinks(t, loggedIn, canLogout)
       this._wireBackupRow()
       menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
@@ -673,13 +673,13 @@ class DotrinoTopbar extends HTMLElement {
         // arranque con el nuevo (las pestañas abiertas conservan el suyo).
         try { await id.switchProfile(b.getAttribute('data-switch')); location.reload() } catch (_) { b.disabled = false }
       }))
-      const salir = menu.querySelector('[data-logout]')
-      if (salir) {
-        salir.addEventListener('click', async () => {
-          salir.disabled = true
+      const logoutBtn = menu.querySelector('[data-logout]')
+      if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+          logoutBtn.disabled = true
           // Salir borra la cuenta de este navegador: hay que recargar igual que al
           // cambiarse, porque la app entera está corriendo con ella.
-          try { await id.logoutLogin(); location.reload() } catch (_) { salir.disabled = false }
+          try { await id.logoutLogin(); location.reload() } catch (_) { logoutBtn.disabled = false }
         })
       }
     } catch (_) { /* sin perfiles que ofrecer: el botón sigue funcionando igual */ }
@@ -694,12 +694,12 @@ class DotrinoTopbar extends HTMLElement {
    * eso lo monta cada app.
    */
   _onProfileClick (ev) {
-    const evento = new CustomEvent('dotrino-profile', { bubbles: true, composed: true, cancelable: true })
-    if (!this.dispatchEvent(evento)) return // la app lo maneja a su manera
+    const evt = new CustomEvent('dotrino-profile', { bubbles: true, composed: true, cancelable: true })
+    if (!this.dispatchEvent(evt)) return // la app lo maneja a su manera
     ev?.stopPropagation?.() // que no lo cierre el listener de «clic fuera»
     const menu = this.shadowRoot.querySelector('.prof-menu')
-    if (menu && !menu.hidden) this._cerrarMenu()
-    else this._abrirMenu()
+    if (menu && !menu.hidden) this._closeMenu()
+    else this._openMenu()
   }
 
   _irAMiPerfil () {
@@ -740,12 +740,12 @@ class DotrinoTopbar extends HTMLElement {
     if (!body || !this._netOpen) return
     const lang = this._lang
     const t = (T[lang] || T.es).net
-    const lista = await Promise.all(transports().map(async (c) => {
+    const list = await Promise.all(transports().map(async (c) => {
       try { return await c.stats() } catch (e) { return { error: e?.message || String(e), url: c.url } }
     }))
     if (!this._netOpen) return
-    this._netLast = lista
-    const html = lista.map((s) => this._netTransport(s, t, lang)).join('') || `<p class="net-empty">${esc(t.none)}</p>`
+    this._netLast = list
+    const html = list.map((s) => this._netTransport(s, t, lang)).join('') || `<p class="net-empty">${esc(t.none)}</p>`
     body.innerHTML = html + `<p class="net-note">${esc(t.note)}</p>`
   }
 
@@ -753,9 +753,9 @@ class DotrinoTopbar extends HTMLElement {
     let host = s.url
     try { host = new URL(s.url).host } catch (_) {}
     if (s.error) return `<section class="net-tr"><div class="net-head"><b>${esc(host)}</b></div><p class="net-empty">${esc(s.error)}</p></section>`
-    const desde = new Date(s.since).toLocaleTimeString(lang === 'en' ? 'en-US' : 'es-EC', { hour: '2-digit', minute: '2-digit' })
+    const sinceTime = new Date(s.since).toLocaleTimeString(lang === 'en' ? 'en-US' : 'es-EC', { hour: '2-digit', minute: '2-digit' })
     const { talking, silent, unknown } = splitPeers(s.peers)
-    const filas = (talking.length
+    const rows = (talking.length
       ? talking.map((p) => this._netPeer(p, t, lang)).join('')
       : `<p class="net-empty">${esc(t.none)}</p>`) +
       (silent.count ? `<p class="net-empty" data-testid="net-silent">${esc(t.noAnswer)}: ${silent.count} · ↑ ${esc(fmtBytes(silent.bytesOut, lang))}</p>` : '') +
@@ -764,7 +764,7 @@ class DotrinoTopbar extends HTMLElement {
       <div class="net-head">
         <span class="net-state ${s.connected ? 'on' : 'off'}" aria-hidden="true"></span>
         <b>${esc(t.server)} · ${esc(host)}</b>
-        <small>${esc(s.connected ? t.connected : t.disconnected)}${s.app ? ' · ' + esc(s.app) : ''} · ${esc(t.since)} ${esc(desde)}</small>
+        <small>${esc(s.connected ? t.connected : t.disconnected)}${s.app ? ' · ' + esc(s.app) : ''} · ${esc(t.since)} ${esc(sinceTime)}</small>
       </div>
       <div class="net-total">
         <span>${esc(t.allProxy)}</span>
@@ -772,20 +772,20 @@ class DotrinoTopbar extends HTMLElement {
         <span>↑ ${esc(fmtBytes(s.proxy.bytesOut, lang))}</span>
       </div>
       <div class="net-sub">${esc(t.connections)} (${talking.length})</div>
-      ${filas}
+      ${rows}
     </section>`
   }
 
   _netPeer (p, t, lang) {
-    const quien = p.pubkey || p.token || ''
+    const who = p.pubkey || p.token || ''
     const img = p.pubkey ? `<img src="${esc(avatarDataUri(p.pubkey, { size: 40 }))}" alt="" />` : '<i class="net-anon" aria-hidden="true"></i>'
-    const desglose = (o) => Object.entries(o).filter(([, v]) => v > 0)
+    const breakdown = (o) => Object.entries(o).filter(([, v]) => v > 0)
       .map(([k, v]) => `${esc(t.path[k] || k)} ${esc(fmtBytes(v, lang))}`).join(' · ')
-    const dIn = desglose(p.bytesIn); const dOut = desglose(p.bytesOut)
+    const dIn = breakdown(p.bytesIn); const dOut = breakdown(p.bytesOut)
     return `<div class="net-peer" data-testid="net-peer" data-route="${esc(p.route)}">
       ${img}
       <div class="net-who">
-        <span title="${esc(quien)}">${esc(shortKey(quien))}</span>
+        <span title="${esc(who)}">${esc(shortKey(who))}</span>
         <em class="net-route ${esc(p.route)}">${esc(t.route[p.route] || p.route)}</em>
       </div>
       <div class="net-bytes">
@@ -992,9 +992,9 @@ class DotrinoTopbar extends HTMLElement {
         .prof-menu .item[aria-current="true"] { color: var(--dt-accent, #9cc4ff); font-weight: 600; }
         .prof-menu .item img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
         .prof-menu .item span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .prof-menu .item .nota { display: block; font-size: 11px; font-weight: 400; color: var(--dt-muted, #8ea0b8); overflow: hidden; text-overflow: ellipsis; }
+        .prof-menu .item .note { display: block; font-size: 11px; font-weight: 400; color: var(--dt-muted, #8ea0b8); overflow: hidden; text-overflow: ellipsis; }
         /* El ✓ del perfil activo, con su propio hueco: antes iba pegado al borde. */
-        .prof-menu .item .marca { flex: 0 0 auto; margin-left: 2px; opacity: .9; }
+        .prof-menu .item .mark { flex: 0 0 auto; margin-left: 2px; opacity: .9; }
         .prof-menu .sep { height: 1px; margin: 4px 2px; background: var(--dt-border, #1e2a3d); }
         .prof-menu .head { padding: 4px 8px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dt-muted, #8ea0b8); }
         .profile svg { width: 20px; height: 20px; }
@@ -1022,7 +1022,7 @@ class DotrinoTopbar extends HTMLElement {
         .prof-menu .backup.bad { border-color: var(--dotrino-topbar-bad, #ef4444); }
         .prof-menu .backup-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
         .prof-menu .backup small { display: block; font-size: 11.5px; color: var(--dt-muted, #8ea0b8); line-height: 1.35; }
-        .prof-menu .backup .accion { margin-top: 4px; justify-content: center; border: 1px solid var(--dt-line); font-weight: 600; }
+        .prof-menu .backup .action { margin-top: 4px; justify-content: center; border: 1px solid var(--dt-line); font-weight: 600; }
         /* RED: el botón, y el modal con las conexiones. */
         .net {
           width: 36px; height: 36px; padding: 0; border-radius: 50%;
