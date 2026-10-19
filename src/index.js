@@ -520,17 +520,12 @@ class DotrinoTopbar extends HTMLElement {
   get profileTheme () { return this._profileTheme || null }
   set profileTheme (v) { this._profileTheme = v || null }
 
-  // Compat: algunas apps setean `profileTheme` para el modal, que ya no existe. Se acepta
-  // y se ignora, para no romperlas por un atributo que ahora no pinta nada.
-  get profileTheme () { return this._profileTheme || null }
-  set profileTheme (v) { this._profileTheme = v || null }
-
   /**
    * Compat: alguna app (el home, para el onboarding «ponte un apodo») llama a esto para
    * abrir el perfil. El modal ya no existe, así que lleva a la página, que es donde de
    * verdad se edita. Se mantiene el nombre para no romperlas.
    */
-  openMyProfile () { this._irAMiPerfil() }
+  openMyProfile () { this._goToMyProfile() }
 
   /**
    * DÓNDE VIVE EL PERFIL, por si no es `profile.dotrino.com`.
@@ -702,7 +697,7 @@ class DotrinoTopbar extends HTMLElement {
     else this._openMenu()
   }
 
-  _irAMiPerfil () {
+  _goToMyProfile () {
     try { location.href = this._profileHref } catch (_) {}
   }
 
