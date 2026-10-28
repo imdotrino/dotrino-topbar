@@ -178,7 +178,10 @@ const T = {
       last: 'Última copia: ',
       relink: 'Volver a enlazar',
       link: 'Enlazar a mi bóveda',
-      retry: 'Reintentar'
+      retry: 'Reintentar',
+      asleep: 'Tu bóveda está dormida',
+      asleepDetail: 'Se copia cuando despierte. Pasado un día sin respaldar, se despierta sola.',
+      syncNow: 'Sincronizar ahora'
     }
   },
   en: {
@@ -215,7 +218,10 @@ const T = {
       last: 'Last copy: ',
       relink: 'Link again',
       link: 'Link to my vault',
-      retry: 'Try again'
+      retry: 'Try again',
+      asleep: 'Your vault is asleep',
+      asleepDetail: 'It is copied when it wakes up. After a day without a backup, it is woken up.',
+      syncNow: 'Sync now'
     }
   }
 }
@@ -241,6 +247,8 @@ function backupLevel (s) {
     return null // sin identidad o almacén cerrado: no hay nada que decir
   }
   if (s.state === 'error') return 'bad'
+  // Dormida (la Nube, que no se despierta por cada cambio): pendiente, no un fallo.
+  if (s.state === 'waiting') return 'busy'
   if (s.state === 'syncing' || s.pending > 0) return 'busy'
   if (s.state === 'synced') return 'ok'
   return null
@@ -468,6 +476,7 @@ class DotrinoTopbar extends HTMLElement {
     const level = backupLevel(s)
     if (level === 'ok') return b.synced
     if (level === 'local') return b.local
+    if (s?.state === 'waiting') return b.asleep
     if (level === 'busy') return s.state === 'syncing' ? b.syncing : b.saving
     if (s?.state === 'off' && s.reason === 'revoked') return b.revoked
     if (isRejected(s)) return b.rejected
@@ -488,6 +497,7 @@ class DotrinoTopbar extends HTMLElement {
       if (s.error?.reason === 'expired') details.push(b.expiredDetail)
       details.push(b.rejectedDetail)
     }
+    if (s.state === 'waiting') details.push(b.asleepDetail)
     if (s.pending > 0) details.push(b.pending(s.pending))
     // Solo si la hubo EN ESTA SESIÓN: el almacén no recuerda la fecha entre recargas, y
     // «nunca» sería mentira en un aparato que sí respaldó ayer.
@@ -497,8 +507,8 @@ class DotrinoTopbar extends HTMLElement {
     const relink = level === 'local' || isRejected(s) || (s.state === 'off' && s.reason === 'revoked')
     const action = relink
       ? `<a class="item action"${this._profileTarget} href="${esc(this._profileVaultHref)}" data-testid="backup-relink">${esc(level === 'local' ? b.link : b.relink)}</a>`
-      : level === 'bad'
-        ? `<button class="item action" type="button" data-backup-retry="1" data-testid="backup-retry">${esc(b.retry)}</button>`
+      : level === 'bad' || s.state === 'waiting'
+        ? `<button class="item action" type="button" data-backup-retry="1" data-testid="backup-retry">${esc(s.state === 'waiting' ? b.syncNow : b.retry)}</button>`
         : ''
     return `<div class="backup ${level}" data-testid="backup-status" data-backup="${level}">` +
       `<div class="backup-head"><i class="backup-dot ${level}" aria-hidden="true"></i><span>${esc(this._backupTitle(s, t))}</span></div>` +
