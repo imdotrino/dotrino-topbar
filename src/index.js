@@ -139,9 +139,14 @@ const LOGIN_URL = 'https://profile.dotrino.com/login'
 // Donde se enlaza este aparato a la bóveda (o se vuelve a enlazar si lo rechazó).
 const VAULT_URL = 'https://profile.dotrino.com/vault'
 
-/** Escape mínimo para el HTML que arma el menú. */
+/**
+ * Escape mínimo para el HTML que arma el menú.
+ *
+ * @param {unknown} v
+ * @returns {string}
+ */
 const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+  /** @type {Record<string, string>} */ ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]))
 
 const T = {
   es: {
@@ -174,7 +179,7 @@ const T = {
       expiredDetail: 'Su permiso para guardar en tu bóveda caducó.',
       revoked: 'Este aparato ya no pertenece a la cuenta',
       error: 'No se pudo copiar a tu bóveda',
-      pending: (n) => n === 1 ? '1 cambio sin respaldar' : `${n} cambios sin respaldar`,
+      pending: (/** @type {number} */ n) => n === 1 ? '1 cambio sin respaldar' : `${n} cambios sin respaldar`,
       last: 'Última copia: ',
       relink: 'Volver a enlazar',
       link: 'Enlazar a mi bóveda',
@@ -214,7 +219,7 @@ const T = {
       expiredDetail: 'Its permission to save to your vault expired.',
       revoked: 'This device no longer belongs to the account',
       error: 'Could not copy to your vault',
-      pending: (n) => n === 1 ? '1 change not backed up' : `${n} changes not backed up`,
+      pending: (/** @type {number} */ n) => n === 1 ? '1 change not backed up' : `${n} changes not backed up`,
       last: 'Last copy: ',
       relink: 'Link again',
       link: 'Link to my vault',
@@ -239,6 +244,67 @@ const T = {
  * dentro de los ajustes de una app. Se perdieron facturas. Un fallo así tiene que verse
  * en TODAS las apps, sin entrar a buscarlo.
  */
+/**
+ * Lo que dice `store.vault` del respaldo (@dotrino/store).
+ *
+ * @typedef {object} BackupStatus
+ * @property {string} [state]      'off' | 'error' | 'waiting' | 'syncing' | 'synced'
+ * @property {string} [reason]     con `off`: 'not-paired' | 'revoked' | …
+ * @property {number} [pending]    cambios que todavía no subieron
+ * @property {number} [lastSyncAt]
+ * @property {{ code?: string, reason?: string }} [error]
+ */
+/**
+ * El almacén que la app le pasa al topbar (@dotrino/store ≥ 0.11).
+ *
+ * @typedef {object} TopbarStore
+ * @property {BackupStatus} vault
+ * @property {(ev: 'vault', fn: () => void) => () => void} [on]
+ * @property {() => Promise<unknown>} vaultSync
+ */
+/**
+ * Lo que el topbar usa de la identidad (@dotrino/identity). Todo es opcional a propósito:
+ * una página sin bóveda no pasa nada, y una identidad vieja puede no tener algún método.
+ *
+ * @typedef {object} TopbarIdentity
+ * @property {{ publickey?: string } | null} [me]
+ * @property {() => Promise<{ avatar?: string | null } | null>} [getMe]
+ * @property {() => Promise<{ pubkey?: string } | null>} [currentProfile]
+ * @property {() => Promise<TopbarProfile[]>} [listProfiles]
+ * @property {(id: string | null) => Promise<unknown>} switchProfile
+ * @property {() => Promise<unknown>} [logoutLogin]
+ */
+/**
+ * @typedef {object} TopbarProfile
+ * @property {string} id
+ * @property {string} [pubkey]
+ * @property {string} [name]
+ * @property {string | null} [avatar]
+ * @property {boolean} [current]
+ * @property {{ address: string, volatile?: boolean }} [login]
+ */
+/**
+ * Las cifras de un cliente del transporte (`client.stats()` de @dotrino/proxy-client).
+ *
+ * @typedef {Record<string, number>} PathBytes   bytes por camino: proxy, direct, turn, webrtc
+ * @typedef {{ pubkey?: string, token?: string, route: string, bytesIn: PathBytes, bytesOut: PathBytes, msgsIn: number, msgsOut: number }} NetPeer
+ * @typedef {object} NetStats
+ * @property {string} url
+ * @property {number} since
+ * @property {string} [app]
+ * @property {string} [node]
+ * @property {boolean} connected
+ * @property {{ bytesIn: number, bytesOut: number, framesIn?: number, framesOut?: number }} proxy
+ * @property {NetPeer[]} peers
+ * @property {undefined} [error]
+ *
+ * @typedef {{ error: string, url?: string }} NetError   un cliente que no pudo dar sus cifras
+ */
+
+/**
+ * @param {BackupStatus | null | undefined} s
+ * @returns {'ok' | 'busy' | 'local' | 'bad' | null}
+ */
 function backupLevel (s) {
   if (!s || typeof s !== 'object') return null
   if (s.state === 'off') {
@@ -249,12 +315,13 @@ function backupLevel (s) {
   if (s.state === 'error') return 'bad'
   // Dormida (la Nube, que no se despierta por cada cambio): pendiente, no un fallo.
   if (s.state === 'waiting') return 'busy'
-  if (s.state === 'syncing' || s.pending > 0) return 'busy'
+  if (s.state === 'syncing' || (s.pending ?? 0) > 0) return 'busy'
   if (s.state === 'synced') return 'ok'
   return null
 }
 
 /** «Rechazado» es distinto de «no contesta»: uno se arregla enlazando, el otro esperando. */
+/** @param {BackupStatus | null | undefined} s */
 const isRejected = (s) => s?.state === 'error' && s.error?.code === 'unauthorized'
 
 /**
@@ -263,12 +330,19 @@ const isRejected = (s) => s?.state === 'error' && s.error?.code === 'unauthorize
  * no importa el pilar: lo lee de ahí, así que vale para cualquier copia que lleve la app.
  */
 const TRANSPORTS = Symbol.for('dotrino.transports')
+/** @returns {{ stats (): Promise<NetStats>, url?: string }[]} */
 const transports = () => {
-  const r = globalThis[TRANSPORTS]
+  const r = /** @type {Iterable<any> | undefined} */ (/** @type {Record<symbol, unknown>} */ (/** @type {unknown} */ (globalThis))[TRANSPORTS])
   return r ? [...r].filter((c) => c && typeof c.stats === 'function') : []
 }
 
-/** 1536 → «1,5 KB». */
+/**
+ * 1536 → «1,5 KB».
+ *
+ * @param {number} n
+ * @param {string} lang
+ * @returns {string}
+ */
 function fmtBytes (n, lang) {
   const loc = lang === 'en' ? 'en-US' : 'es-EC'
   const u = ['B', 'KB', 'MB', 'GB']
@@ -277,19 +351,26 @@ function fmtBytes (n, lang) {
   return `${n.toLocaleString(loc, { maximumFractionDigits: i ? 1 : 0 })} ${u[i]}`
 }
 
+/** @param {PathBytes | null | undefined} o */
 const sum = (o) => (o ? Object.values(o).reduce((a, b) => a + (b || 0), 0) : 0)
 
 /** Bytes para el informe de texto: `B`, `KB` con un decimal, `MB` con dos (igual que en dotrino-native). */
+/** @param {number} n */
 const rBytes = (n) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`)
+/** @param {PathBytes | null | undefined} o */
 const rPaths = (o) => {
-  const parts = ['proxy', 'direct', 'turn', 'webrtc'].filter((k) => (o?.[k] || 0) > 0).map((k) => `${k} ${rBytes(o[k])}`)
+  const parts = ['proxy', 'direct', 'turn', 'webrtc'].filter((k) => (o?.[k] || 0) > 0).map((k) => `${k} ${rBytes(/** @type {PathBytes} */ (o)[k])}`)
   return parts.length ? parts.join(', ') : '0 B'
 }
 /**
  * Los que contestaron algo (`talking`) y los que solo recibieron (`silent`, resumidos): a un
  * aparato apagado al que se le mandó un ping no se le llama conexión.
+ *
+ * @param {NetPeer[]} peers
+ * @returns {{ talking: NetPeer[], silent: { count: number, bytesOut: number, msgsOut: number }, unknown: { count: number, bytesIn: number, msgsIn: number } }}
  */
 export function splitPeers (peers) {
+  /** @param {PathBytes | null | undefined} o */
   const total = (o) => ['proxy', 'direct', 'turn', 'webrtc'].reduce((n, k) => n + (o?.[k] || 0), 0)
   const talking = []
   const silent = { count: 0, bytesOut: 0, msgsOut: 0 }
@@ -301,12 +382,18 @@ export function splitPeers (peers) {
   }
   return { talking, silent, unknown }
 }
-/** Las estadísticas como texto: las mismas líneas en la web, Android e iOS (`NetworkStats.report`). */
+/**
+ * Las estadísticas como texto: las mismas líneas en la web, Android e iOS (`NetworkStats.report`).
+ *
+ * @param {(NetStats | NetError)[]} list
+ * @returns {Promise<string>}
+ */
 export async function netReport (list) {
   let out = `Dotrino network stats · ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}\n`
   if (!list.length) out += '(no transports)\n'
-  for (const s of list) {
-    if (s.error) { out += `Proxy ${s.url} | error: ${s.error}\n`; continue }
+  for (const entry of list) {
+    if (entry.error) { out += `Proxy ${entry.url} | error: ${entry.error}\n`; continue }
+    const s = /** @type {NetStats} */ (entry)
     const hhmm = new Date(s.since).toTimeString().slice(0, 8)
     out += `Proxy ${s.url}${s.app ? ` | app=${s.app}` : ''}${s.node ? ` | node=${s.node}` : ''} | ${s.connected ? 'connected' : 'disconnected'} | since ${hhmm}\n`
     out += `  proxy total: in ${rBytes(s.proxy.bytesIn)} / out ${rBytes(s.proxy.bytesOut)} (frames ${s.proxy.framesIn ?? '?'}/${s.proxy.framesOut ?? '?'})\n`
@@ -327,6 +414,7 @@ export async function netReport (list) {
   }
   return out
 }
+/** @param {unknown} k */
 const shortKey = (k) => { const v = String(k || ''); return v.length > 14 ? `${v.slice(0, 6)}…${v.slice(-6)}` : v }
 
 const NET_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -350,8 +438,55 @@ class DotrinoTopbar extends HTMLElement {
   constructor () {
     super()
     this.attachShadow({ mode: 'open' })
+    /** @type {'es' | 'en'} */
     this._lang = 'es'
+    // Estado que se va llenando (tipos solamente: estas líneas no asignan nada).
+    /** @type {TopbarIdentity | null | undefined} */
+    this._identity // eslint-disable-line no-unused-expressions
+    /** @type {unknown} */
+    this._reputation // eslint-disable-line no-unused-expressions
+    /** @type {unknown} */
+    this._provider // eslint-disable-line no-unused-expressions
+    /** @type {TopbarStore | null | undefined} */
+    this._store // eslint-disable-line no-unused-expressions
+    /** @type {(() => void) | null | undefined} */
+    this._offStore // eslint-disable-line no-unused-expressions
+    /** @type {unknown} */
+    this._profileTheme // eslint-disable-line no-unused-expressions
+    /** @type {boolean | undefined} */
+    this._avatarAuto // eslint-disable-line no-unused-expressions
+    /** @type {(() => void) | null | undefined} */
+    this._onScheme // eslint-disable-line no-unused-expressions
+    /** @type {(() => void) | null | undefined} */
+    this._onTransports // eslint-disable-line no-unused-expressions
+    /** @type {((e: MouseEvent) => void) | null | undefined} */
+    this._outsideListener // eslint-disable-line no-unused-expressions
+    /** @type {boolean | undefined} */
+    this._netOpen // eslint-disable-line no-unused-expressions
+    /** @type {ReturnType<typeof setInterval> | null | undefined} */
+    this._netTimer // eslint-disable-line no-unused-expressions
+    /** @type {(NetStats | NetError)[] | undefined} */
+    this._netLast // eslint-disable-line no-unused-expressions
   }
+
+  /** El shadow root, que se crea en el constructor. */
+  get _root () { return /** @type {ShadowRoot} */ (this.shadowRoot) }
+
+  /**
+   * Un elemento del shadow DOM, o null.
+   *
+   * @param {string} sel
+   * @returns {HTMLElement | null}
+   */
+  _el (sel) { return /** @type {HTMLElement | null} */ (this.shadowRoot?.querySelector(sel) ?? null) }
+
+  /**
+   * Un botón del shadow DOM, o null.
+   *
+   * @param {string} sel
+   * @returns {HTMLButtonElement | null}
+   */
+  _btn (sel) { return /** @type {HTMLButtonElement | null} */ (this.shadowRoot?.querySelector(sel) ?? null) }
 
   connectedCallback () {
     this._lang = this._resolveLang()
@@ -382,7 +517,7 @@ class DotrinoTopbar extends HTMLElement {
 
   /** El sol en oscuro, la luna en claro: el icono dice a dónde lleva. */
   _paintThemeButton () {
-    const b = this.shadowRoot?.querySelector('.theme')
+    const b = this._btn('.theme')
     if (!b) return
     const dark = resolvedTheme() === 'dark'
     const t = T[this._lang] || T.es
@@ -402,6 +537,11 @@ class DotrinoTopbar extends HTMLElement {
     if (this._outsideListener) { document.removeEventListener('click', this._outsideListener); this._outsideListener = null }
   }
 
+  /**
+   * @param {string} name
+   * @param {string | null} oldV
+   * @param {string | null} newV
+   */
   attributeChangedCallback (name, oldV, newV) {
     // `lang` hay que RE-RESOLVERLO: antes solo se leía en connectedCallback, así
     // que un cambio de atributo posterior al montaje re-renderizaba con el idioma
@@ -410,7 +550,7 @@ class DotrinoTopbar extends HTMLElement {
       const l = this._resolveLang()
       if (l !== this._lang) { this.setLang(l); return }   // setLang ya renderiza y avisa
     }
-    if (this.shadowRoot.childElementCount) this.render()
+    if (this._root.childElementCount) this.render()
   }
 
   /* ----- Perfil "Mi perfil": el topbar es DUEÑO del modal (§6.1) -----
@@ -420,6 +560,7 @@ class DotrinoTopbar extends HTMLElement {
    * @dotrino/profile: viaja dentro de @dotrino/topbar. Si la app NO setea identity,
    * el botón solo emite `dotrino-profile` (comportamiento clásico) y la app decide. */
   get identity () { return this._identity || null }
+  /** @param {TopbarIdentity | null | undefined} v */
   set identity (v) {
     v = v || null
     if (v === this._identity) return // evita re-render redundante (la app re-setea el mismo objeto)
@@ -427,6 +568,7 @@ class DotrinoTopbar extends HTMLElement {
     if (this.shadowRoot) this._refreshButtonAvatar()
   }
   get reputation () { return this._reputation || null }
+  /** @param {unknown} v */
   set reputation (v) { v = v || null; if (v === this._reputation) return; this._reputation = v; this._provider = null }
 
   /**
@@ -435,6 +577,7 @@ class DotrinoTopbar extends HTMLElement {
    * arreglarlo. Sin él no se pinta nada: el topbar no abre el almacén por su cuenta.
    */
   get store () { return this._store || null }
+  /** @param {TopbarStore | null | undefined} v */
   set store (v) {
     v = v || null
     if (v === this._store) return
@@ -444,6 +587,7 @@ class DotrinoTopbar extends HTMLElement {
     this._paintBackup()
   }
 
+  /** @returns {BackupStatus | null} */
   get _backup () {
     try { return this._store ? this._store.vault : null } catch (_) { return null }
   }
@@ -455,7 +599,7 @@ class DotrinoTopbar extends HTMLElement {
     const s = this._backup
     const level = backupLevel(s)
     const t = T[this._lang] || T.es
-    const dot = root.querySelector('.backup-dot')
+    const dot = /** @type {HTMLElement | null} */ (root.querySelector('.backup-dot'))
     if (dot) {
       dot.hidden = !level
       dot.className = `backup-dot ${level || ''}`
@@ -471,23 +615,33 @@ class DotrinoTopbar extends HTMLElement {
     this._wireBackupRow()
   }
 
+  /**
+   * @param {BackupStatus | null} s
+   * @param {typeof T.es} t
+   * @returns {string}
+   */
   _backupTitle (s, t) {
     const b = t.backup
     const level = backupLevel(s)
     if (level === 'ok') return b.synced
     if (level === 'local') return b.local
     if (s?.state === 'waiting') return b.asleep
-    if (level === 'busy') return s.state === 'syncing' ? b.syncing : b.saving
+    if (level === 'busy') return s?.state === 'syncing' ? b.syncing : b.saving
     if (s?.state === 'off' && s.reason === 'revoked') return b.revoked
     if (isRejected(s)) return b.rejected
     return b.error
   }
 
   /** La fila de arriba del menú: estado, detalle y la única acción que lo arregla. */
+  /**
+   * @param {typeof T.es} t
+   * @returns {string}
+   */
   _backupRow (t) {
     const s = this._backup
     const level = backupLevel(s)
-    if (!level) return ''
+    // backupLevel da null sin estado: de aquí en adelante `s` existe.
+    if (!level || !s) return ''
     const b = t.backup
     const details = []
     if (level === 'local') details.push(b.localDetail)
@@ -498,7 +652,7 @@ class DotrinoTopbar extends HTMLElement {
       details.push(b.rejectedDetail)
     }
     if (s.state === 'waiting') details.push(b.asleepDetail)
-    if (s.pending > 0) details.push(b.pending(s.pending))
+    if (s.pending && s.pending > 0) details.push(b.pending(s.pending))
     // Solo si la hubo EN ESTA SESIÓN: el almacén no recuerda la fecha entre recargas, y
     // «nunca» sería mentira en un aparato que sí respaldó ayer.
     if (level !== 'local' && s.lastSyncAt) {
@@ -516,18 +670,20 @@ class DotrinoTopbar extends HTMLElement {
   }
 
   _wireBackupRow () {
-    const b = this.shadowRoot?.querySelector('[data-backup-retry]')
-    if (!b || !this._store) return
+    const b = this._btn('[data-backup-retry]')
+    const store = this._store
+    if (!b || !store) return
     b.addEventListener('click', async (e) => {
       e.stopPropagation()
       b.disabled = true
       // El resultado ya llega por el evento 'vault'; aquí solo se evita el doble clic.
-      try { await this._store.vaultSync() } catch (_) {} finally { b.disabled = false }
+      try { await store.vaultSync() } catch (_) {} finally { b.disabled = false }
     })
   }
   // Compat: algunas apps setean `profileTheme` para el modal, que ya no existe. Se acepta
   // y se ignora, para no romperlas por un atributo que ahora no pinta nada.
   get profileTheme () { return this._profileTheme || null }
+  /** @param {unknown} v */
   set profileTheme (v) { this._profileTheme = v || null }
 
   /**
@@ -592,24 +748,24 @@ class DotrinoTopbar extends HTMLElement {
    * tocar fuera. Con teclado se abre al enfocar el botón, para que no sea solo de ratón.
    */
   _wireProfileMenu () {
-    const wrap = this.shadowRoot.querySelector('.profile-wrap')
-    const menu = this.shadowRoot.querySelector('.prof-menu')
-    const btn = this.shadowRoot.querySelector('.profile')
+    const wrap = this._root.querySelector('.profile-wrap')
+    const menu = this._root.querySelector('.prof-menu')
+    const btn = /** @type {HTMLElement | null} */ (this._root.querySelector('.profile'))
     if (!wrap || !menu || !btn) return
 
     // El menú se abre al PULSAR, no al pasar por encima: un menú que aparece solo porque
     // el ratón pasa cerca es incómodo, y además así el gesto es el mismo en el escritorio
     // y en el móvil, donde no existe el hover.
     if (!this._outsideListener) {
-      this._outsideListener = (e) => { if (!this.contains(e.target)) this._closeMenu() }
+      this._outsideListener = (e) => { if (!this.contains(/** @type {Node | null} */ (e.target))) this._closeMenu() }
       document.addEventListener('click', this._outsideListener)
     }
-    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this._closeMenu(); btn.focus() } })
+    wrap.addEventListener('keydown', (e) => { if (/** @type {KeyboardEvent} */ (e).key === 'Escape') { this._closeMenu(); btn.focus() } })
   }
 
   async _openMenu () {
-    const menu = this.shadowRoot.querySelector('.prof-menu')
-    const btn = this.shadowRoot.querySelector('.profile')
+    const menu = /** @type {HTMLElement | null} */ (this._root.querySelector('.prof-menu'))
+    const btn = this._root.querySelector('.profile')
     if (!menu || !btn) return
     await this._loadProfilesMenu()
     if (!menu.innerHTML) return
@@ -618,6 +774,12 @@ class DotrinoTopbar extends HTMLElement {
   }
 
   /** Los enlaces del menú: abrir, crear, adoptar, y entrar o salir. */
+  /**
+   * @param {typeof T.es} t
+   * @param {unknown} loggedIn
+   * @param {boolean} [canLogout]
+   * @returns {string}
+   */
   _profileLinks (t, loggedIn, canLogout) {
     return `<a class="item"${this._profileTarget} href="${esc(this._profileHref)}">${esc(t.openProfile)}</a>` +
       `<a class="item"${this._profileTarget} href="${esc(this._profileNewHref)}${this._profileNewHref === CREATE_URL ? '?return=' + encodeURIComponent(location.href) : ''}">＋ ${esc(t.newProfile)}</a>` +
@@ -630,7 +792,7 @@ class DotrinoTopbar extends HTMLElement {
   }
 
   _closeMenu () {
-    const menu = this.shadowRoot?.querySelector('.prof-menu')
+    const menu = this._el('.prof-menu')
     const btn = this.shadowRoot?.querySelector('.profile')
     if (menu) menu.hidden = true
     if (btn) btn.setAttribute('aria-expanded', 'false')
@@ -639,7 +801,7 @@ class DotrinoTopbar extends HTMLElement {
   /** Pinta la lista de perfiles del dispositivo (avatar + nombre + cuál está activo). */
   async _loadProfilesMenu () {
     const id = this._identity
-    const menu = this.shadowRoot.querySelector('.prof-menu')
+    const menu = this._root.querySelector('.prof-menu')
     if (!menu) return
     const t = T[this._lang] || T.es
     // SIN IDENTIDAD el menú sale igual, con los enlaces y sin la lista: una página que no
@@ -672,19 +834,21 @@ class DotrinoTopbar extends HTMLElement {
       menu.innerHTML = this._backupRow(t) + `<div class="head">${esc(t.profiles)}</div>${rows}<div class="sep"></div>` +
         this._profileLinks(t, loggedIn, canLogout)
       this._wireBackupRow()
-      menu.querySelectorAll('[data-switch]').forEach((b) => b.addEventListener('click', async () => {
+      /** @type {NodeListOf<HTMLButtonElement>} */ const switches = menu.querySelectorAll('[data-switch]')
+      switches.forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true
         // Cambiar de perfil NO es reactivo por diseño: se recarga para que toda la app
         // arranque con el nuevo (las pestañas abiertas conservan el suyo).
         try { await id.switchProfile(b.getAttribute('data-switch')); location.reload() } catch (_) { b.disabled = false }
       }))
-      const logoutBtn = menu.querySelector('[data-logout]')
+      /** @type {HTMLButtonElement | null} */ const logoutBtn = menu.querySelector('[data-logout]')
+      const logout = id.logoutLogin
       if (logoutBtn) {
         logoutBtn.addEventListener('click', async () => {
           logoutBtn.disabled = true
           // Salir borra la cuenta de este navegador: hay que recargar igual que al
           // cambiarse, porque la app entera está corriendo con ella.
-          try { await id.logoutLogin(); location.reload() } catch (_) { logoutBtn.disabled = false }
+          try { await /** @type {() => Promise<unknown>} */ (logout).call(id); location.reload() } catch (_) { logoutBtn.disabled = false }
         })
       }
     } catch (_) { /* sin perfiles que ofrecer: el botón sigue funcionando igual */ }
@@ -698,11 +862,12 @@ class DotrinoTopbar extends HTMLElement {
    * `profile.dotrino.com`. El modal sigue vivo para ver el perfil de OTRA persona, pero
    * eso lo monta cada app.
    */
+  /** @param {Event} [ev] */
   _onProfileClick (ev) {
     const evt = new CustomEvent('dotrino-profile', { bubbles: true, composed: true, cancelable: true })
     if (!this.dispatchEvent(evt)) return // la app lo maneja a su manera
     ev?.stopPropagation?.() // que no lo cierre el listener de «clic fuera»
-    const menu = this.shadowRoot.querySelector('.prof-menu')
+    const menu = this._el('.prof-menu')
     if (menu && !menu.hidden) this._closeMenu()
     else this._openMenu()
   }
@@ -715,26 +880,27 @@ class DotrinoTopbar extends HTMLElement {
 
   /** El botón se ve solo si hay un cliente del transporte en la página. */
   _paintNetButton () {
-    const b = this.shadowRoot?.querySelector('.net')
+    const b = this._el('.net')
     if (b) b.hidden = !transports().length
   }
 
   _openNet () {
-    const m = this.shadowRoot.querySelector('.net-modal')
+    const m = this._el('.net-modal')
     if (!m) return
     this._netOpen = true
     m.hidden = false
-    this.shadowRoot.querySelector('.net')?.setAttribute('aria-expanded', 'true')
+    this._root.querySelector('.net')?.setAttribute('aria-expanded', 'true')
     this._paintNet()
-    clearInterval(this._netTimer)
+    clearInterval(this._netTimer ?? undefined)
     this._netTimer = setInterval(() => this._paintNet(), 1000)
-    m.querySelector('.net-close')?.focus()
+    /** @type {HTMLElement | null} */ const close = m.querySelector('.net-close')
+    close?.focus()
   }
 
   _closeNet () {
     this._netOpen = false
-    clearInterval(this._netTimer); this._netTimer = null
-    const m = this.shadowRoot?.querySelector('.net-modal')
+    clearInterval(this._netTimer ?? undefined); this._netTimer = null
+    const m = this._el('.net-modal')
     if (m) m.hidden = true
     this.shadowRoot?.querySelector('.net')?.setAttribute('aria-expanded', 'false')
   }
@@ -746,7 +912,7 @@ class DotrinoTopbar extends HTMLElement {
     const lang = this._lang
     const t = (T[lang] || T.es).net
     const list = await Promise.all(transports().map(async (c) => {
-      try { return await c.stats() } catch (e) { return { error: e?.message || String(e), url: c.url } }
+      try { return await c.stats() } catch (e) { return /** @type {NetError} */ ({ error: /** @type {{ message?: string } | null | undefined} */ (e)?.message || String(e), url: c.url }) }
     }))
     if (!this._netOpen) return
     this._netLast = list
@@ -754,10 +920,17 @@ class DotrinoTopbar extends HTMLElement {
     body.innerHTML = html + `<p class="net-note">${esc(t.note)}</p>`
   }
 
-  _netTransport (s, t, lang) {
-    let host = s.url
-    try { host = new URL(s.url).host } catch (_) {}
-    if (s.error) return `<section class="net-tr"><div class="net-head"><b>${esc(host)}</b></div><p class="net-empty">${esc(s.error)}</p></section>`
+  /**
+   * @param {NetStats | NetError} entry
+   * @param {typeof T.es.net} t
+   * @param {string} lang
+   * @returns {string}
+   */
+  _netTransport (entry, t, lang) {
+    let host = entry.url
+    try { host = new URL(/** @type {string} */ (entry.url)).host } catch (_) {}
+    if (entry.error) return `<section class="net-tr"><div class="net-head"><b>${esc(host)}</b></div><p class="net-empty">${esc(entry.error)}</p></section>`
+    const s = /** @type {NetStats} */ (entry)
     const sinceTime = new Date(s.since).toLocaleTimeString(lang === 'en' ? 'en-US' : 'es-EC', { hour: '2-digit', minute: '2-digit' })
     const { talking, silent, unknown } = splitPeers(s.peers)
     const rows = (talking.length
@@ -781,17 +954,26 @@ class DotrinoTopbar extends HTMLElement {
     </section>`
   }
 
+  /**
+   * @param {NetPeer} p
+   * @param {typeof T.es.net} t
+   * @param {string} lang
+   * @returns {string}
+   */
   _netPeer (p, t, lang) {
     const who = p.pubkey || p.token || ''
     const img = p.pubkey ? `<img src="${esc(avatarDataUri(p.pubkey, { size: 40 }))}" alt="" />` : '<i class="net-anon" aria-hidden="true"></i>'
+    const path = /** @type {Record<string, string>} */ (t.path)
+    const route = /** @type {Record<string, string>} */ (t.route)
+    /** @param {PathBytes} o */
     const breakdown = (o) => Object.entries(o).filter(([, v]) => v > 0)
-      .map(([k, v]) => `${esc(t.path[k] || k)} ${esc(fmtBytes(v, lang))}`).join(' · ')
+      .map(([k, v]) => `${esc(path[k] || k)} ${esc(fmtBytes(v, lang))}`).join(' · ')
     const dIn = breakdown(p.bytesIn); const dOut = breakdown(p.bytesOut)
     return `<div class="net-peer" data-testid="net-peer" data-route="${esc(p.route)}">
       ${img}
       <div class="net-who">
         <span title="${esc(who)}">${esc(shortKey(who))}</span>
-        <em class="net-route ${esc(p.route)}">${esc(t.route[p.route] || p.route)}</em>
+        <em class="net-route ${esc(p.route)}">${esc(route[p.route] || p.route)}</em>
       </div>
       <div class="net-bytes">
         <span title="${esc(t.received)}${dIn ? ': ' + dIn : ''}">↓ ${esc(fmtBytes(sum(p.bytesIn), lang))}</span>
@@ -830,6 +1012,7 @@ class DotrinoTopbar extends HTMLElement {
     this.setAttribute('lang', l)   // → attributeChangedCallback re-resuelve el idioma
   }
 
+  /** @param {string | undefined} l */
   setLang (l) {
     if (l !== 'es' && l !== 'en') return
     this._lang = l
@@ -837,7 +1020,7 @@ class DotrinoTopbar extends HTMLElement {
     document.documentElement.lang = l
     // propagar a los sub-componentes que aceptan lang
     for (const sel of ['dotrino-support', 'dotrino-back']) {
-      this.shadowRoot.querySelector(sel)?.setAttribute('lang', l)
+      this._root.querySelector(sel)?.setAttribute('lang', l)
     }
     this.render()
     this.dispatchEvent(new CustomEvent('dotrino-lang', { detail: { lang: l }, bubbles: true, composed: true }))
@@ -846,7 +1029,7 @@ class DotrinoTopbar extends HTMLElement {
   render () {
     const lang = this._lang
     const t = T[lang]
-    const has = (a) => this.hasAttribute(a)
+    const has = (/** @type {string} */ a) => this.hasAttribute(a)
     const brand = this.getAttribute('brand') || ''
     const icon = this.getAttribute('icon') || ''
     const brandHref = this.getAttribute('brand-href') || './'
@@ -908,7 +1091,7 @@ class DotrinoTopbar extends HTMLElement {
       <button type="button" part="lang-btn" class="${lang === 'es' ? 'on' : ''}" data-lang="es">ES</button>
       <button type="button" part="lang-btn" class="${lang === 'en' ? 'on' : ''}" data-lang="en">EN</button></div>`
 
-    this.shadowRoot.innerHTML = `
+    this._root.innerHTML = `
       <style>
         :host {
           display: block;
@@ -1173,37 +1356,39 @@ class DotrinoTopbar extends HTMLElement {
         </div>
       </div>`
 
-    this.shadowRoot.querySelectorAll('.lang button').forEach((b) =>
+    /** @type {NodeListOf<HTMLButtonElement>} */ const langButtons = this._root.querySelectorAll('.lang button')
+    langButtons.forEach((b) =>
       b.addEventListener('click', () => this.setLang(b.dataset.lang)))
     this._paintThemeButton()
-    this.shadowRoot.querySelector('.theme')?.addEventListener('click', () => {
+    this._root.querySelector('.theme')?.addEventListener('click', () => {
       // Elige lo contrario de lo que SE VE (no de lo guardado: con `auto` lo que se ve es
       // lo del sistema). Vuelve a seguir al sistema borrando la elección en el perfil.
       setTheme(resolvedTheme() === 'dark' ? 'light' : 'dark')
       this._paintThemeButton()
       this.dispatchEvent(new CustomEvent('dotrino-theme', { detail: { theme: resolvedTheme() }, bubbles: true, composed: true }))
     })
-    this.shadowRoot.querySelector('.profile')?.addEventListener('click', (e) => this._onProfileClick(e))
+    this._root.querySelector('.profile')?.addEventListener('click', (e) => this._onProfileClick(e))
     this._wireProfileMenu()
     this._paintBackup()
     this._paintNetButton()
-    this.shadowRoot.querySelector('.net')?.addEventListener('click', () => this._openNet())
-    this.shadowRoot.querySelectorAll('[data-net-close]').forEach((b) => b.addEventListener('click', () => this._closeNet()))
+    this._root.querySelector('.net')?.addEventListener('click', () => this._openNet())
+    this._root.querySelectorAll('[data-net-close]').forEach((b) => b.addEventListener('click', () => this._closeNet()))
     // «Copiar»: las cifras como texto, para pegarlas en un chat (dueño, 2026-10-07). Las mismas
     // líneas que copian Android e iOS (`NetworkStats.report` de dotrino-native).
-    this.shadowRoot.querySelector('.net-copy')?.addEventListener('click', async (e) => {
-      const b = e.currentTarget
+    this._root.querySelector('.net-copy')?.addEventListener('click', async (e) => {
+      const b = /** @type {HTMLElement} */ (e.currentTarget)
       try { await navigator.clipboard.writeText(await netReport(this._netLast || [])) } catch (_) { return }
       const t = (T[this._lang] || T.es).net
       b.textContent = t.copied
       setTimeout(() => { b.textContent = t.copy }, 1500)
     })
-    this.shadowRoot.querySelector('.net-modal')?.addEventListener('keydown', (e) => { if (e.key === 'Escape') this._closeNet() })
+    this._root.querySelector('.net-modal')?.addEventListener('keydown', (e) => { if (/** @type {KeyboardEvent} */ (e).key === 'Escape') this._closeNet() })
     // Un re-render (cambio de idioma, de avatar) rehace el shadow DOM: si el modal estaba
     // abierto, se vuelve a abrir con el texto nuevo.
     if (this._netOpen) this._openNet()
   }
 
+  /** @param {string} n */
   _attr (n) { return this.getAttribute(n) }
 }
 
