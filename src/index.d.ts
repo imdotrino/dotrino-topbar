@@ -34,6 +34,8 @@ export class DotrinoTopbar extends HTMLElement {
   store: any
   /** CSS vars --ccp-* para tematizar la tarjeta de perfil (opcional). */
   profileTheme: Record<string, string> | null
+  /** Lleva a la página del perfil propio (`profile.dotrino.com` o `profile-href`). */
+  openMyProfile(): void
 }
 
 declare global {
